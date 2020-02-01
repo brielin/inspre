@@ -1,0 +1,136 @@
+---
+title: "Gaussian Graphical Models Simulation"
+author: "Brielin C Brown"
+date: "1/28/2020"
+output: html_document
+---
+
+## Gaussian Graphical Models test
+```{r}
+require(foreach)
+require(tidyverse)
+require(ggplot2)
+```
+
+
+```{r}
+D <- 200
+p_net <- 0.1
+sd_net <- 1
+N <- 1000
+niter <- 10
+
+plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
+  print(i)
+  dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE)
+  X <- dataset$X
+  sigma <- dataset$sigma
+  theta <- dataset$theta
+  S_hat <- cov(X)
+
+  foreach(method = c("glasso", "ilasso", "inspre", "inspre_net"), .combine = bind_rows) %do% {
+    theta_hat <- NULL
+    if(method == "glasso"){
+      lambda_max <- max(abs(S_hat[!diag(D)]))
+      lambda_min <- 1e-3 * lambda_max
+      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 20))
+      res <- glasso::glassopath(S_hat, penalize.diagonal = FALSE, trace = 0, rholist = lambda_seq)
+      theta_hat <- res$wi
+      lambda <- res$rholist
+    } else if(method == "inspre"){
+      res <- inspre(S_hat, gamma = 0, verbose = 0, delta_target = 1e-5, rho_min = 5)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    } else if(method == "inspre_net"){
+      res <- inspre(S_hat, gamma = 0.05, verbose = 0, delta_target = 1e-4, rho_min = 5)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    } else if(method == "ilasso"){
+      res <- ilasso(S_hat)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    }
+    
+    metrics <- map_dfr(array_tree(theta_hat, 3), function(t){calc_metrics(t, theta)})
+    metrics$lambda <- lambda
+    metrics$method <- method
+    metrics$iter <- i
+    metrics
+  }
+}
+```
+
+```{r}
+min_metric <- plot_tibble %>% group_by(iter, method) %>% 
+  mutate(min_rmse = min(rmse), min_mae = min(mae), max_acc = max(acc), max_weight_acc = max(weight_acc)) %>%
+  distinct(iter, method, min_rmse, min_mae, max_acc, max_weight_acc)
+ggplot(min_metric, aes(method, min_rmse)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(min_metric, aes(method, min_mae)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(min_metric, aes(method, max_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(min_metric, aes(method, max_weight_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+
+ggplot(plot_tibble, aes(x=recall, y=precision, color=method)) + geom_point()
+```
+
+
+
+```{r}
+D <- 200
+p_net <- 0.1
+sd_net <- 1
+N <- 100
+niter <- 10
+
+plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
+  print(i)
+  dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE)
+  X <- dataset$X
+  sigma <- dataset$sigma
+  theta <- dataset$theta
+  S_hat <- cov(X)
+
+  foreach(method = c("glasso", "ilasso", "inspre", "inspre_net"), .combine = bind_rows) %do% {
+    theta_hat <- NULL
+    if(method == "glasso"){
+      lambda_max <- max(abs(S_hat[!diag(D)]))
+      lambda_min <- 1e-3 * lambda_max
+      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 20))
+      res <- glasso::glassopath(S_hat, penalize.diagonal = FALSE, trace = 0, rholist = lambda_seq)
+      theta_hat <- res$wi
+      lambda <- res$rholist
+    } else if(method == "inspre"){
+      res <- inspre(S_hat, gamma = 0, verbose = FALSE, delta_target = 1e-5, rho_min = 5)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    } else if(method == "inspre_net"){
+      res <- inspre(S_hat, gamma = 0.05, verbose = 0, delta_target = 1e-4, rho_min = 5)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    } else if(method == "ilasso"){
+      res <- ilasso(S_hat)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    }
+    
+    metrics <- map_dfr(array_tree(theta_hat, 3), function(t){calc_metrics(t, theta)})
+    metrics$lambda <- lambda
+    metrics$method <- method
+    metrics$iter <- i
+    metrics
+  }
+}
+```
+
+```{r}
+min_metric <- plot_tibble %>% group_by(iter, method) %>% 
+  mutate(min_rmse = min(rmse), min_mae = min(mae), max_acc = max(acc), max_weight_acc = max(weight_acc)) %>%
+  distinct(iter, method, min_rmse, min_mae, max_acc, max_weight_acc)
+ggplot(min_metric, aes(method, min_rmse)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(min_metric, aes(method, min_mae)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(min_metric, aes(method, max_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(min_metric, aes(method, max_weight_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+
+ggplot(plot_tibble, aes(x=recall, y=precision, color=method)) + geom_point()
+```
+
+

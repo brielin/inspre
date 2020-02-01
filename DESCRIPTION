@@ -1,0 +1,21 @@
+Package: inspre
+Title: INverse SParse REgression
+Version: 0.0.0.9000
+Authors: Brielin C. Brown and David A. Knowles
+Maintainer: Brielin C. Brown <brielin.b@columbia.edu>
+Description: Matrix inverse, only better.
+License: BSD
+Encoding: UTF-8
+LazyData: true
+Suggests:
+    corpcor,
+    glasso,
+    mvtnorm,
+    testthat
+RoxygenNote: 7.0.2
+LinkingTo: 
+    Rcpp,
+    RcppEigen
+Imports: 
+    Rcpp,
+    stats
