@@ -10,22 +10,6 @@ off_diagonal <- function(X){
   return(X[!diag(D)])
 }
 
-make_weights <- function(SE, max_weight = NULL) {
-  weights <- 1 / SE^2
-  weights[is.na(SE)] <- 0
-
-  if (is.null(max_weight)) {
-    infs <- is.infinite(weights)
-    weights[infs] <- 0
-    max_weight <- max(weights)
-    weights[infs] <- max_weight
-  }
-
-  weights[weights > max_weight] <- max_weight
-  weights <- weights/mean(weights)
-  return(weights)
-}
-
 ilasso_loss <- function(X, V, lambda){
   iloss <- sum((diag(nrow(X)) - X %*% V)^2)
   l1 <- lambda * sum(abs(off_diagonal(V)))
@@ -57,6 +41,28 @@ inspre_lagrangian <- function(X, U, V, theta, rho, lambda, gamma) {
   VU_term1 <- sum(theta * VU_minus_I)
   VU_term2 <- .5 * rho * sum(VU_minus_I^2)
   return(c(inspre_primal(X, U, V, lambda, gamma)$loss, VU_term1, VU_term2))
+}
+
+#' Helper function to make weights for inspre.
+#'
+#' @param SE DxD matrix of standard errors.
+#' @param max_weight Highest possible weight, useful when some SEs are
+#'   near 0.
+#' @export
+make_weights <- function(SE, max_weight = NULL) {
+  weights <- 1 / SE^2
+  weights[is.na(SE)] <- 0
+
+  if (is.null(max_weight)) {
+    infs <- is.infinite(weights)
+    weights[infs] <- 0
+    max_weight <- max(weights)
+    weights[infs] <- max_weight
+  }
+
+  weights[weights > max_weight] <- max_weight
+  weights <- weights/mean(weights)
+  return(weights)
 }
 
 #' Worker function to fit inspre for a single value of lambda.
