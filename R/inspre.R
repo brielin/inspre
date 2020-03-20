@@ -10,6 +10,55 @@ off_diagonal <- function(X){
   return(X[!diag(D)])
 }
 
+make_weights <- function(SE, max_weight = NULL) {
+  weights <- 1 / SE^2
+  weights[is.na(SE)] <- 0
+
+  if (is.null(max_weight)) {
+    infs <- is.infinite(weights)
+    weights[infs] <- 0
+    max_weight <- max(weights)
+    weights[infs] <- max_weight
+  }
+
+  weights[weights > max_weight] <- max_weight
+  weights <- weights/mean(weights)
+  return(weights)
+}
+
+ilasso_loss <- function(X, V, lambda){
+  iloss <- sum((diag(nrow(X)) - X %*% V)^2)
+  l1 <- lambda * sum(abs(off_diagonal(V)))
+  nnz <- sum(V>0)
+  return(list("loss" = c(iloss, l1), "nnz"=nnz))
+}
+
+glasso_loss <- function(X, V, lambda){
+  I_hat <- X%*%V
+  trloss <- sum(diag(I_hat))
+  detV <- determinant(V)
+  neglogdet <- -detV$sign * detV$modulus
+  l1 <- lambda * sum(abs(off_diagonal(V)))
+  nnz <- sum(V>0)
+  return(list("loss" = c(trloss, neglogdet, l1), "nnz" = nnz))
+}
+
+inspre_primal <- function(X, U, V, lambda, gamma){
+  VU_minus_I <- V %*% U - diag(nrow(U))
+  x_dist <- .5 * sum((X - U)^2)
+  l1 <- lambda * sum(abs(off_diagonal(V)))
+  u_shrinkage <- gamma * sum((U-diag(nrow(U)))^2)
+  nnz <- sum(V>0)
+  return(list("loss" = c(x_dist, u_shrinkage, l1), "nnz" = nnz))
+}
+
+inspre_lagrangian <- function(X, U, V, theta, rho, lambda, gamma) {
+  VU_minus_I <- V %*% U - diag(nrow(U))
+  VU_term1 <- sum(theta * VU_minus_I)
+  VU_term2 <- .5 * rho * sum(VU_minus_I^2)
+  return(c(inspre_primal(X, U, V, lambda, gamma)$loss, VU_term1, VU_term2))
+}
+
 #' Worker function to fit inspre for a single value of lambda.
 #'
 #' @param X DxD Matrix to find approximate sparse inverse of.
@@ -21,8 +70,9 @@ off_diagonal <- function(X){
 #' @param delta_target Float. Target change in solution.
 #' @param warm_start List with elements "U" and "V" containing starting point.
 #' @param verbose Bool. True to print solution progress.
-inspre_worker <- function(X, W=NULL, rho=0.1, lambda=0.01, gamma=0.01, its=1000,
-                          delta_target = 1e-4, warm_start = NULL, verbose=FALSE){
+inspre_worker <- function(X, W=NULL, rho=0.1, lambda=0.01, gamma=0.0, its=1000,
+                          delta_target = 1e-4, warm_start = NULL, symmetrize = FALSE,
+                          verbose=FALSE, detpen=0.1){
   D <- nrow(X)
   theta <- matrix(0.0, D, D)
   if(is.null(warm_start)){
@@ -33,28 +83,31 @@ inspre_worker <- function(X, W=NULL, rho=0.1, lambda=0.01, gamma=0.01, its=1000,
     U <- warm_start$U
   }
 
-  primal <- function(U, V) {
-    .5 * sum((X - U)^2) + lambda * sum(abs(off_diagonal(V))) + gamma * sum(U^2)
-  }
-
-  lagrangian <- function(U, V, theta) {
-    VU_minus_I = V %*% U - diag(D)
-    primal(U, V) + sum(theta * VU_minus_I) + .5 * rho * sum(VU_minus_I^2)
-  }
-
-  L <- lagrangian(U, V, theta)
+  L <- sum(inspre_lagrangian(X, U, V, theta, rho, lambda, gamma))
   converged <- TRUE
   sign_changes <- 0
   max_sign_changes <- 2
   last_sign <- 1
-  min_delta_met <- 2
+  min_delta_met <- 1
   delta_met <- 0
   for(iter in 1:its){
-    U_next <- solve((1 + gamma) * diag(D) + rho * t(V) %*% V,
-                    X + rho * t(V) - t(V) %*% theta)
+    if(is.null(W)){
+      U_next <- solve((1 + gamma) * diag(D) + rho * t(V) %*% V,
+                      X + rho * t(V) - t(V) %*% theta + gamma * diag(D))
+    } else{
+      U_next <- matrix(0, D, D)
+      rhs <- W*X + rho * t(V) - t(V) %*% theta
+      for(d in 1:D){
+        U_next[, d] <- solve(diag(W[,d]) + rho * t(V) %*% V, rhs[, d])
+      }
+    }
+    # if(symmetrize){
+    #   U_next <- (0.5 * (U_next + t(U_next)))
+    # }
 
     glm_X <- sqrt(rho) * t(U_next)
-    glm_Y <- (rho * diag(D) - t(theta) ) / sqrt(rho)
+    glm_Y <- ((rho + detpen) * diag(D) - t(theta) ) / sqrt(rho)
+    # glm_Y <- ((rho + detpen) * diag(D) - t(theta) - trpen * V %*% X ) / sqrt(rho)
 
     V_next <- matrix(0, D, D)
     # TODO(brielin): It's probably a lot faster to move this into the Cpp code.
@@ -65,6 +118,9 @@ inspre_worker <- function(X, W=NULL, rho=0.1, lambda=0.01, gamma=0.01, its=1000,
       lasso_one_iteration(glm_X, glm_Y[, d], V_row, lambda=penalty_factor * lambda)
       V_next[d, ] <- V_row
     }
+    if(symmetrize){
+      V_next <- 0.5 * (V_next + t(V_next))  * (abs(V_next) > 1e-10 & abs(t(V_next)) > 1e-10)
+    }
 
     VU_minus_I <- V_next %*% U_next - diag(D)
     theta <- theta + rho * VU_minus_I
@@ -74,7 +130,7 @@ inspre_worker <- function(X, W=NULL, rho=0.1, lambda=0.01, gamma=0.01, its=1000,
     U <- U_next
     V <- V_next
 
-    L_next <- lagrangian(U, V, theta)
+    L_next <- sum(inspre_lagrangian(X, U, V, theta, rho, lambda, gamma))
     L_delta <- abs(L_next - L)/L
     L_sign <- sign(L_next - L)
     L <- L_next
@@ -89,10 +145,10 @@ inspre_worker <- function(X, W=NULL, rho=0.1, lambda=0.01, gamma=0.01, its=1000,
     }
 
     if(verbose){
-      # VtV_evs <- svd(V, nu = 0, nv = 0)$d**2
-      cat(iter, L, primal(U, V), sqrt(mean(VU_minus_I^2)),
-          # max(VtV_evs), min(VtV_evs),
-          rmsd_u, rmsd_v, L_delta, "\n")
+      vsvs <- svd(V, nu = 0, nv = 0)$d
+      usvs <- svd(U, nu = 0, nv = 0)$d
+      cat(iter, L, max(vsvs)/min(vsvs), max(usvs)/min(usvs), sqrt(mean(VU_minus_I^2)),
+          rmsd_u, rmsd_v, L_delta, sign_changes, "\n")
     }
 
     # Converged if some iterations in a row have delta < target.
@@ -132,14 +188,16 @@ inspre_worker <- function(X, W=NULL, rho=0.1, lambda=0.01, gamma=0.01, its=1000,
 #' @param verbose 0, 1 or 2. 2 to print convergence progress for each lambda,
 #'   1 to print convergence result for each lambda, 0 for no output.
 #' @export
-inspre <- function(X, W=NULL, rho=NULL, lambda=NULL, lambda_min_ratio=1e-3,
-                   gamma=0.01, its=1000, delta_target = 1e-4, rho_min=0.1,
-                   rho_max=100, verbose=1){
+inspre <- function(X, W=NULL, rho=NULL, lambda=NULL, lambda_min_ratio=1e-2, nlambda=20,
+                   alpha=1.0, its=1000, delta_target = 1e-4, rho_min=0.1,
+                   rho_max=100, symmetrize = FALSE, verbose=1, detpen = 0.0){
   D <- ncol(X)
   if(is.null(lambda)){
     lambda_max <- max(abs(off_diagonal(X)))
     lambda_min <- lambda_min_ratio * lambda_max
-    lambda <- exp(seq(log(lambda_max), log(lambda_min), length.out = 20))
+    lambda <- exp(seq(log(lambda_max), log(lambda_min), length.out = nlambda))
+    lambda <- alpha*lambda
+    gamma <- (1-alpha)*lambda
   }
 
   if(is.null(rho)){
@@ -153,11 +211,14 @@ inspre <- function(X, W=NULL, rho=NULL, lambda=NULL, lambda_min_ratio=1e-3,
   L_path <- vector("numeric", length = length(lambda))
   for (i in 1:length(lambda)) {
     lambda_i <- lambda[i]
+    gamma_i <- gamma[i]
+    restart <- FALSE
     while(j <= length(rho)){
       rho_j <- rho[j]
-      inspre_res <- inspre_worker(X, W, lambda = lambda_i, gamma = gamma,
+      inspre_res <- inspre_worker(X, W, lambda = lambda_i, gamma = gamma_i,
                                   rho = rho_j, warm_start = warm_start, its = its,
-                                  delta_target, verbose = (verbose == 2))
+                                  delta_target, symmetrize = symmetrize,
+                                  verbose = (verbose == 2), detpen = detpen)
       if(isFALSE(inspre_res$converged)){
         if(verbose){
           cat(sprintf(
@@ -166,12 +227,18 @@ inspre <- function(X, W=NULL, rho=NULL, lambda=NULL, lambda_min_ratio=1e-3,
         }
         j <- j + 1
         rho_j <- rho[j]
+        if(j == length(rho) & isFALSE(restart)){
+          restart <- TRUE
+          j <- 1
+        }
       } else{
         if(verbose){
           cat(sprintf("Converged to L=%f in %d iterations for lambda=%f using rho=%f.\n",
                       inspre_res$L, inspre_res$iter, lambda_i, rho_j))
         }
-        # j <- 1
+        if(j > 1){
+         j <- 1
+        }
         break
       }
     }
@@ -245,7 +312,7 @@ ilasso_worker <- function(X, lambda, lambda_min_ratio = 1e-3, its = 1000, delta_
 #' @param warm_start DxD matrix, initial solution.
 #' @param verbose Bool. True to print solution progress.
 #' @export
-ilasso <- function(X, lambda = NULL, lambda_min_ratio = 1e-3, its = 1000,
+ilasso <- function(X, lambda = NULL, lambda_min_ratio = 1e-2, its = 1000,
                    delta_target = 1e-4, verbose = FALSE){
   D <- ncol(X)
   if(is.null(lambda)){

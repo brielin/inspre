@@ -10,6 +10,9 @@ output: html_document
 require(foreach)
 require(tidyverse)
 require(ggplot2)
+require(glasso)
+library(devtools)
+load_all()
 ```
 
 
@@ -17,7 +20,7 @@ require(ggplot2)
 D <- 200
 p_net <- 0.1
 sd_net <- 1
-N <- 1000
+N <- 2000
 niter <- 10
 
 plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
@@ -28,21 +31,17 @@ plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
   theta <- dataset$theta
   S_hat <- cov(X)
 
-  foreach(method = c("glasso", "ilasso", "inspre", "inspre_net"), .combine = bind_rows) %do% {
+  foreach(method = c("glasso", "ilasso", "inspre"), .combine = bind_rows) %do% {
     theta_hat <- NULL
     if(method == "glasso"){
       lambda_max <- max(abs(S_hat[!diag(D)]))
-      lambda_min <- 1e-3 * lambda_max
+      lambda_min <- 1e-2 * lambda_max
       lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 20))
       res <- glasso::glassopath(S_hat, penalize.diagonal = FALSE, trace = 0, rholist = lambda_seq)
       theta_hat <- res$wi
       lambda <- res$rholist
     } else if(method == "inspre"){
-      res <- inspre(S_hat, gamma = 0, verbose = 0, delta_target = 1e-5, rho_min = 5)
-      theta_hat <- res$V
-      lambda <- res$lambda
-    } else if(method == "inspre_net"){
-      res <- inspre(S_hat, gamma = 0.05, verbose = 0, delta_target = 1e-4, rho_min = 5)
+      res <- inspre(S_hat, alpha = 1, detpen = 0.15, verbose = 0, delta_target = 1e-4, rho_min = 1, its = 100, symmetrize = TRUE)
       theta_hat <- res$V
       lambda <- res$lambda
     } else if(method == "ilasso"){
@@ -78,32 +77,38 @@ ggplot(plot_tibble, aes(x=recall, y=precision, color=method)) + geom_point()
 D <- 200
 p_net <- 0.1
 sd_net <- 1
-N <- 100
+N <- 2000
 niter <- 10
+min_missing = 0.0
+max_missing = 0.8
 
 plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
   print(i)
-  dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE)
+  dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing, max_missing = max_missing)
   X <- dataset$X
   sigma <- dataset$sigma
   theta <- dataset$theta
-  S_hat <- cov(X)
+  cor_res <- cor_w_se(X)
+  S_hat <- cor_res$S_hat
+  SE_S <- cor_res$SE_S
+  W <- 1/SE_S^2
+  diag(W) <- max(off_diagonal(W))
+  W <- W/mean(W)
+  N_mat <- cor_res$N
 
-  foreach(method = c("glasso", "ilasso", "inspre", "inspre_net"), .combine = bind_rows) %do% {
+  foreach(method = c("glasso", "inspre_net", "ilasso"), .combine = bind_rows) %do% {
     theta_hat <- NULL
     if(method == "glasso"){
-      lambda_max <- max(abs(S_hat[!diag(D)]))
-      lambda_min <- 1e-3 * lambda_max
+      S_hat_g <- 0.7*S_hat
+      diag(S_hat_g) <- 1
+      lambda_max <- max(abs(S_hat_g[!diag(D)]))
+      lambda_min <- 1e-2 * lambda_max
       lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 20))
-      res <- glasso::glassopath(S_hat, penalize.diagonal = FALSE, trace = 0, rholist = lambda_seq)
+      res <- glasso::glassopath(S_hat_g, penalize.diagonal = FALSE, trace = 1, rholist = lambda_seq)
       theta_hat <- res$wi
       lambda <- res$rholist
     } else if(method == "inspre"){
-      res <- inspre(S_hat, gamma = 0, verbose = FALSE, delta_target = 1e-5, rho_min = 5)
-      theta_hat <- res$V
-      lambda <- res$lambda
-    } else if(method == "inspre_net"){
-      res <- inspre(S_hat, gamma = 0.05, verbose = 0, delta_target = 1e-4, rho_min = 5)
+      res <- inspre(S_hat, W = W, verbose = 1, delta_target = 1e-4, rho_min = 2.5, detpen=0.15)
       theta_hat <- res$V
       lambda <- res$lambda
     } else if(method == "ilasso"){
