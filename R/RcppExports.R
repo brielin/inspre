@@ -11,6 +11,5 @@
 #' @param lambda P-vector L1 regulation coeffs
 #' @export
 lasso_one_iteration <- function(X, Y, B, lambda) {
-    .Call(`_inspre_lasso_one_iteration`, X, Y, B, lambda)
+  .Call(`_inspre_lasso_one_iteration`, X, Y, B, lambda)
 }
-

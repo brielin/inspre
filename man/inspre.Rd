@@ -6,13 +6,19 @@
 \usage{
 inspre(
   X,
-  W,
-  rho = 0.1,
-  lambda = 0.01,
-  gamma = 0.01,
-  its = 100,
-  rmse_target = 1e-04,
-  verbose = FALSE
+  W = NULL,
+  rho = NULL,
+  lambda = NULL,
+  lambda_min_ratio = 0.01,
+  nlambda = 20,
+  alpha = 1,
+  its = 1000,
+  delta_target = 1e-04,
+  rho_min = 0.1,
+  rho_max = 100,
+  symmetrize = FALSE,
+  verbose = 1,
+  detpen = 0
 )
 }
 \arguments{
@@ -20,17 +26,37 @@ inspre(
 
 \item{W}{DxD Matrix of weights.}
 
-\item{rho}{Float, learning rate for ADMM.}
+\item{rho}{Float, sequence of floats or NULL. Learning rate for ADMM.
+If NULL, a logarithmicallly spaced set of values between rho_min and
+rho_max will be used.}
 
-\item{lambda}{Float. L1 regularization strength on inverse of X.}
+\item{lambda}{Float, sequence of floats of NULL. L1 regularization strength
+on inverse of X. If NULL, a logarithmicallly spaced set of values between
+the maximimum absolute off diagonal element of X and lambda_min_ratio
+times this value will be used.}
 
-\item{gamma}{Float. L2 regularization on approximation to X that is inverted.}
+\item{lambda_min_ratio}{Float, ratio of maximum lambda to minimum lambda.}
 
-\item{its}{Integer. Number of iterations.}
+\item{nlambda}{Integer. Number of lambda values to try.}
 
-\item{rmse_target}{Float. Target change in solution.}
+\item{alpha}{Float. To be removed in future version.}
 
-\item{verbose}{Bool. True to print solution progress.}
+\item{its}{Integer. Maximum number of iterations.}
+
+\item{delta_target}{Float. Target change in solution.}
+
+\item{rho_min}{Float. Minimum rho to try.}
+
+\item{rho_max}{Float. Maximum rho to try.}
+
+\item{symmetrize}{True to force the output to be symmetric. If the input
+is symmetric, the output isn't always perfectly symmetric due to numerical
+issues.}
+
+\item{verbose}{0, 1 or 2. 2 to print convergence progress for each lambda,
+1 to print convergence result for each lambda, 0 for no output.}
+
+\item{detpen}{Determinant penalty strength.}
 }
 \description{
 Finds the inverse of X using Inverse Sparse Regression.

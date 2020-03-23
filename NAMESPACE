@@ -3,6 +3,7 @@
 export(ilasso)
 export(inspre)
 export(lasso_one_iteration)
+export(make_weights)
 import(RcppEigen)
 importFrom(Rcpp,sourceCpp)
 useDynLib(inspre, .registration = TRUE)
