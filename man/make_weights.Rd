@@ -9,8 +9,8 @@ make_weights(SE, max_min_ratio = NULL)
 \arguments{
 \item{SE}{DxD matrix of standard errors.}
 
-\item{max_min_ratio}{Float > 1. Ratio of maximum weight to minimum weight.
-Useful When some SEs are very small.}
+\item{max_min_ratio}{Float > 1. Ratio of maximum weight to minimum non-zero
+weight. Improves conditioning when some SEs are very small.}
 }
 \description{
 Helper function to make weights for inspre.
