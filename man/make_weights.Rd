@@ -4,13 +4,13 @@
 \alias{make_weights}
 \title{Helper function to make weights for inspre.}
 \usage{
-make_weights(SE, max_weight = NULL)
+make_weights(SE, max_min_ratio = NULL)
 }
 \arguments{
 \item{SE}{DxD matrix of standard errors.}
 
-\item{max_weight}{Highest possible weight, useful when some SEs are
-near 0.}
+\item{max_min_ratio}{Float > 1. Ratio of maximum weight to minimum weight.
+Useful When some SEs are very small.}
 }
 \description{
 Helper function to make weights for inspre.

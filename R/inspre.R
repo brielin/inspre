@@ -325,10 +325,10 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
     xi_mat <- xi_mat/cv_folds
     xi_mat <- 2 * xi_mat * (1-xi_mat)
     D_hat <- apply(xi_mat, 3, mean)
-    D_hat_se <- apply(xi_mat, 3, function(x){ sd(x)/sqrt(length(x)) })
+    D_hat_se <- apply(xi_mat, 3, function(x){ stats::sd(x)/sqrt(length(x)) })
 
     test_error <- apply(error_matrix, 2, mean)
-    test_error_se <- apply(error_matrix, 2, function(x){ sd(x)/sqrt(length(x))})
+    test_error_se <- apply(error_matrix, 2, function(x){ stats::sd(x)/sqrt(length(x))})
     full_res$test_error_se <- test_error_se
     full_res$test_error <- test_error
     full_res$D_hat <- D_hat

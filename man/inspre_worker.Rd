@@ -7,15 +7,16 @@
 inspre_worker(
   X,
   W = NULL,
-  rho = 0.1,
+  rho = 1,
   lambda = 0.01,
-  gamma = 0,
   its = 1000,
   delta_target = 1e-04,
   warm_start = NULL,
   symmetrize = FALSE,
   verbose = FALSE,
-  detpen = 0.1
+  detpen = 0,
+  mu = 5,
+  tau = 2
 )
 }
 \arguments{
@@ -26,8 +27,6 @@ inspre_worker(
 \item{rho}{Float, learning rate for ADMM.}
 
 \item{lambda}{Float. L1 regularization strength on inverse of X.}
-
-\item{gamma}{Float. L2 regularization on approximation to X that is inverted.}
 
 \item{its}{Integer. Maximum number of iterations.}
 
@@ -42,8 +41,14 @@ issues.}
 \item{verbose}{Bool. True to print solution progress.}
 
 \item{detpen}{Determinant penalty strength.}
+
+\item{mu}{rho modification parameter for ADMM. Rho will be
+increased/decreased when the dual constrant and primal constraint are off
+by a factor of > mu.}
+
+\item{tau}{rho modification parameter for ADMM. When called for, rho will be
+increased/decreased by the factor tau.}
 }
 \description{
-TODO(brielin): Remove gamma penalty.
-TODO(brielin): Infer detpen automatically.
+Worker function to fit inspre for a single value of lambda.
 }

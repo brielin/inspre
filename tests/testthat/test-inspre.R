@@ -10,8 +10,8 @@ test_that("make_weights_works", {
 })
 
 test_that("make_weights_max_works", {
-  weights <- make_weights(res$SE_S, max_weight = 1.0)
-  expect_equal(max(weights), 1)
+  weights <- make_weights(res$SE_S, max_min_ratio = 1.5)
+  expect_equal(max(weights)/min(weights), 1.5)
 })
 
 test_that("inspre_worker_works", {
