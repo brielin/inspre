@@ -44,8 +44,8 @@ inspre_lagrangian <- function(X, U, V, theta, rho, lambda, alpha) {
 #' Helper function to make weights for inspre.
 #'
 #' @param SE DxD matrix of standard errors.
-#' @param max_min_ratio Float > 1. Ratio of maximum weight to minimum weight.
-#'   Useful When some SEs are very small.
+#' @param max_min_ratio Float > 1. Ratio of maximum weight to minimum non-zero
+#'   weight. Improves conditioning when some SEs are very small.
 #' @export
 make_weights <- function(SE, max_min_ratio = NULL) {
   weights <- 1 / SE^2
@@ -57,7 +57,7 @@ make_weights <- function(SE, max_min_ratio = NULL) {
     max_weight <- max(weights)
     weights[infs] <- max_weight
   } else {
-    max_weight <- min(weights) * max_min_ratio
+    max_weight <- min(weights[weights > 0]) * max_min_ratio
     weights[weights > max_weight] <- max_weight
   }
 
