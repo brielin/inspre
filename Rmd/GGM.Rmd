@@ -9,18 +9,129 @@ output: html_document
 ```{r}
 require(foreach)
 require(tidyverse)
-require(ggplot2)
 require(glasso)
 library(devtools)
 load_all()
 ```
 
+```{r}
+cv <- function(X, theta, train_prop = 0.8, cv_folds = 10, nlambda = 20){
+  N <- dim(X)[1]
+  
+  test_error = c()
+  train_error = c()
+  for(i in 1:cv_folds){
+    print(i)
+    train <- runif(N) < train_prop
+    X_train = X[train, ]
+    X_test = X[!train, ]
+    S_train <- cor_w_se(X_train)$S_hat
+    S_test <- cor_w_se(X_test)$S_hat
+    res <- inspre(S_train, verbose = 0, delta_target = 1e-4, its = 100, symmetrize = TRUE, nlambda = nlambda, lambda_min_ratio = 1e-2)
+    train_error = c(train_error, purrr::map_dbl(array_tree(res$U, 3), function(U){ sqrt(mean((S_train - U)**2)) }))
+    test_error = c(test_error, purrr::map_dbl(array_tree(res$U, 3), function(U){ sqrt(mean((S_test - U)**2)) }))
+  }
+  train_error = matrix(train_error, nrow = nlambda)
+  test_error = matrix(test_error, nrow = nlambda)
+  print(apply(test_error, 1, mean))
+  print(map_dfr(array_tree(res$V, 3), function(t){calc_metrics(t, theta)}))
+}
+```
 
 ```{r}
-D <- 200
+D <- 25
 p_net <- 0.1
 sd_net <- 1
-N <- 2000
+N <- 200
+niter <- 10
+min_missing = 0.0
+max_missing = 0.0
+dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE,
+                              min_missing = min_missing, max_missing = max_missing)
+X <- dataset$X
+sigma <- dataset$sigma
+theta <- dataset$theta
+cor_res <- cor_w_se(X)
+S_hat <- cor_res$S_hat
+SE_S <- cor_res$SE_S
+print(svd(S_hat)$d)
+W = NULL # make_weights(SE_S)
+
+cv(X, theta, cv_folds = 20)
+  
+res0 <- inspre(S_hat, W = W, detpen = 0.0, verbose = 0, delta_target = 1e-4, its = 100,
+               symmetrize = TRUE, cv_folds = 10, nlambda = 100,
+               lambda_min_ratio = 1e-2, train_prop = 0.8)
+print(map_dfr(array_tree(res0$V, 3), function(t){calc_metrics(t, theta)}))
+
+res1 <- inspre(S_hat, W = W, detpen = 0.07, verbose = 0, delta_target = 1e-4, its = 100,
+              symmetrize = TRUE, cv_folds = 10, nlambda = 20,
+              lambda_min_ratio = 1e-2, train_prop = 0.8)
+# theta_hat <- res0$V
+# print(map_dfr(array_tree(theta_hat, 3), function(t){calc_metrics(t, theta)})$rmse)
+# print(res0$test_error)
+# theta_hat <- res1$V
+# print(map_dfr(array_tree(theta_hat, 3), function(t){calc_metrics(t, theta)})$rmse)
+# print(res1$test_error)
+```
+
+```{r}
+
+plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
+  print(i)
+  dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE,
+                              min_missing = min_missing, max_missing = max_missing)
+  X <- dataset$X
+  sigma <- dataset$sigma
+  theta <- dataset$theta
+  cor_res <- cor_w_se(X)
+  S_hat <- cor_res$S_hat
+  SE_S <- cor_res$SE_S
+  W <- make_weights(SE_S)
+  N_mat <- cor_res$N
+  print(svd(S_hat)$d)
+
+  foreach(method = c("glasso", "inspre", "inspre_cv", "ilasso"), .combine = bind_rows) %do% {
+    theta_hat <- NULL
+    if(method == "glasso"){
+      S_hat_g <- 1*S_hat
+      diag(S_hat_g) <- 1
+      lambda_max <- max(abs(S_hat_g[!diag(D)]))
+      lambda_min <- 1e-2 * lambda_max
+      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 100))
+      res <- glasso::glassopath(S_hat_g, penalize.diagonal = FALSE, trace = 1, rholist = lambda_seq)
+      theta_hat <- res$wi
+      lambda <- res$rholist
+    } else if(method == "inspre"){
+      res <- inspre(S_hat, W = W, verbose = 1, delta_target = 1e-4, rho_min = 2.5, detpen=0.15, nlambda = 10)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    } else if (method == "inspre_cv") {
+      res <- inspre(S_hat, W = W, detpen = 0.0, verbose = 1, delta_target = 1e-4,
+                    rho_min = 1, its = 100, symmetrize = TRUE, cv_folds = 10, nlambda = 20, train_prop = 0.7)
+      theta_hat <- res$V[,,which.min(res$test_error), drop = FALSE]
+      lambda <- res$lambda[which.min(res$test_error)]
+    } else if(method == "ilasso"){
+      res <- ilasso(S_hat, nlambda = 10)
+      theta_hat <- res$V
+      lambda <- res$lambda
+    }
+    
+    metrics <- map_dfr(array_tree(theta_hat, 3), function(t){calc_metrics(t, theta)})
+    metrics$lambda <- lambda
+    metrics$method <- method
+    metrics$iter <- i
+    metrics
+  }
+}
+```
+
+
+```{r}
+D <- 100
+p_net <- 0.1
+sd_net <- 1
+N <- 200
 niter <- 10
 
 plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
@@ -31,21 +142,27 @@ plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
   theta <- dataset$theta
   S_hat <- cov(X)
 
-  foreach(method = c("glasso", "ilasso", "inspre"), .combine = bind_rows) %do% {
+  foreach(method = c("glasso", "ilasso", "inspre", "inspre_cv"), .combine = bind_rows) %do% {
     theta_hat <- NULL
     if(method == "glasso"){
       lambda_max <- max(abs(S_hat[!diag(D)]))
       lambda_min <- 1e-2 * lambda_max
-      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 20))
+      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 10))
       res <- glasso::glassopath(S_hat, penalize.diagonal = FALSE, trace = 0, rholist = lambda_seq)
       theta_hat <- res$wi
       lambda <- res$rholist
     } else if(method == "inspre"){
-      res <- inspre(S_hat, alpha = 1, detpen = 0.15, verbose = 0, delta_target = 1e-4, rho_min = 1, its = 100, symmetrize = TRUE)
+      res <- inspre(S_hat, detpen = 0.05, verbose = 0, delta_target = 1e-4,
+                    rho_min = 1, its = 100, symmetrize = TRUE, nlambda = 10)
       theta_hat <- res$V
       lambda <- res$lambda
+    } else if (method == "inspre_cv") {
+      res <- inspre(S_hat, detpen = 0.1, verbose = 1, delta_target = 1e-4,
+                    rho_min = 1, its = 100, symmetrize = TRUE, cv_folds = 10, nlambda = 10)
+      theta_hat <- res$V[,,which.min(res$test_error), drop = FALSE]
+      lambda <- res$lambda[which.min(res$test_error)]
     } else if(method == "ilasso"){
-      res <- ilasso(S_hat)
+      res <- ilasso(S_hat, nlambda = 10)
       theta_hat <- res$V
       lambda <- res$lambda
     }
@@ -74,10 +191,10 @@ ggplot(plot_tibble, aes(x=recall, y=precision, color=method)) + geom_point()
 
 
 ```{r}
-D <- 200
+D <- 100
 p_net <- 0.1
 sd_net <- 1
-N <- 2000
+N <- 1000
 niter <- 10
 min_missing = 0.0
 max_missing = 0.8
@@ -91,28 +208,31 @@ plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
   cor_res <- cor_w_se(X)
   S_hat <- cor_res$S_hat
   SE_S <- cor_res$SE_S
-  W <- 1/SE_S^2
-  diag(W) <- max(off_diagonal(W))
-  W <- W/mean(W)
+  W <- make_weights(SE_S)
   N_mat <- cor_res$N
 
-  foreach(method = c("glasso", "inspre_net", "ilasso"), .combine = bind_rows) %do% {
+  foreach(method = c("glasso", "inspre", "inspre_cv", "ilasso"), .combine = bind_rows) %do% {
     theta_hat <- NULL
     if(method == "glasso"){
-      S_hat_g <- 0.7*S_hat
+      S_hat_g <- 1*S_hat
       diag(S_hat_g) <- 1
       lambda_max <- max(abs(S_hat_g[!diag(D)]))
       lambda_min <- 1e-2 * lambda_max
-      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 20))
+      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 10))
       res <- glasso::glassopath(S_hat_g, penalize.diagonal = FALSE, trace = 1, rholist = lambda_seq)
       theta_hat <- res$wi
       lambda <- res$rholist
     } else if(method == "inspre"){
-      res <- inspre(S_hat, W = W, verbose = 1, delta_target = 1e-4, rho_min = 2.5, detpen=0.15)
+      res <- inspre(S_hat, W = W, verbose = 1, delta_target = 1e-4, rho_min = 2.5, detpen=0.15, nlambda = 10)
       theta_hat <- res$V
       lambda <- res$lambda
+    } else if (method == "inspre_cv") {
+      res <- inspre(S_hat, W = W, detpen = 0.1, verbose = 1, delta_target = 1e-4,
+                    rho_min = 1, its = 100, symmetrize = TRUE, cv_folds = 10, nlambda = 10)
+      theta_hat <- res$V[,,which.min(res$test_error), drop = FALSE]
+      lambda <- res$lambda[which.min(res$test_error)]
     } else if(method == "ilasso"){
-      res <- ilasso(S_hat)
+      res <- ilasso(S_hat, nlambda = 10)
       theta_hat <- res$V
       lambda <- res$lambda
     }
@@ -139,3 +259,44 @@ ggplot(plot_tibble, aes(x=recall, y=precision, color=method)) + geom_point()
 ```
 
 
+```{r}
+# TESTING/scratch
+N = 10000
+D = 100
+p_net = 0.05
+dataset = generate_dataset(D, N, p_net)
+res = cor_w_se(dataset$X)
+X <- res$S_hat
+W <- make_weights(res$SE_S)
+V <- matrix(rnorm(D*D), nrow=D)
+
+exact <- function(X, W, V, rho = 1){
+  D <- dim(X)[1]
+  U_next <- matrix(0, D, D)
+  WX <- W * X
+  WX[is.na(WX)] <- 0
+  rhs <- WX + rho * t(V) # - t(V) %*% theta
+  for (d in 1:D) {
+    U_next[, d] <- solve(diag(W[, d]) + rho * t(V) %*% V, rhs[, d])
+  }
+  return(U_next)
+}
+
+approximate <- function(X, W, V, rho = 1, k = 100){
+  P <- rho * t(V) %*% V
+  qrp <- qr(P)
+  WX <- W * X
+  WX[is.na(WX)] <- 0
+  rhs <- WX + rho * t(V) # - t(V) %*% theta
+  for (d in 1:D){
+    Di <- diag(W[,d])
+    pinvrhs <- qr.solve(qrp, rhs[, d])
+    pinvd <- qr.solve(qrp, Di)
+    result <- matrix(0L, nrow=D, ncol=D)
+    for (i in 0:k){
+      result = result + (-pinvd)^k
+    }
+    result <- result %*% pinvrhs
+  }
+}
+```

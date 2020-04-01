@@ -29,8 +29,11 @@ calc_metrics <- function(X, X_true, eps = 1e-10) {
   weights[sign_Xt < 0] <- 1 / N_neg
   weights[sign_Xt == 0] <- 1 / N_zero
   weight_acc <- sum((sign_X == sign_Xt) * weights) / sum(weights)
+  precision = TS / (TS + FS)
+  recall = TS / (TS + FN)
 
-  return(list("precision" = TS / (TS + FS), "recall" = TS / (TS + FN),
+  return(list("precision" = precision, "recall" = recall,
+              "F1" = 2*precision*recall/(precision + recall),
               "rmse" = rmse, "mae" = mae, "acc" = acc,
               "weight_acc" = weight_acc))
 }
