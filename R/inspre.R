@@ -10,23 +10,6 @@ off_diagonal <- function(X) {
   return(X[!diag(D)])
 }
 
-ilasso_loss <- function(X, V, lambda) {
-  iloss <- sum((diag(nrow(X)) - X %*% V)^2)
-  l1 <- lambda * sum(abs(off_diagonal(V)))
-  nnz <- sum(V > 0)
-  return(list("loss" = c(iloss, l1), "nnz" = nnz))
-}
-
-glasso_loss <- function(X, V, lambda) {
-  I_hat <- X %*% V
-  trloss <- sum(diag(I_hat))
-  detV <- determinant(V)
-  neglogdet <- -detV$sign * detV$modulus
-  l1 <- lambda * sum(abs(off_diagonal(V)))
-  nnz <- sum(V > 0)
-  return(list("loss" = c(trloss, neglogdet, l1), "nnz" = nnz))
-}
-
 inspre_primal <- function(X, U, V, lambda, alpha) {
   x_dist <- .5 * sum((X - U)^2, na.rm = TRUE)
   l1_term <- lambda * sum(abs(off_diagonal(V)))
@@ -67,6 +50,8 @@ make_weights <- function(SE, max_min_ratio = NULL) {
 
 #' Worker function to fit inspre for a single value of lambda.
 #'
+#' @importFrom foreach %dopar%
+#'
 #' @param X DxD Matrix to find approximate sparse inverse of.
 #' @param W DxD Matrix of weights.
 #' @param rho Float, learning rate for ADMM.
@@ -84,10 +69,13 @@ make_weights <- function(SE, max_min_ratio = NULL) {
 #'   by a factor of > mu.
 #' @param tau rho modification parameter for ADMM. When called for, rho will be
 #'   increased/decreased by the factor tau.
+#' @param solve_its Integer, number of iterations of bicgstab/lasso to run
+#'   for each U and V update.
+#' @param ncores Integer, number of cores to use.
 inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
                           its = 1000, delta_target = 1e-4, warm_start = NULL,
                           symmetrize = FALSE, verbose = FALSE, detpen = 0.0,
-                          mu = 5, tau = 2) {
+                          mu = 5, tau = 1.5, solve_its = 3, ncores = 1) {
   D <- nrow(X)
   theta <- matrix(0.0, D, D)
   if (is.null(warm_start)) {
@@ -102,35 +90,46 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 
   min_delta_met <- 2
   delta_met <- 0
+
+  doMC::registerDoMC(cores = ncores)
+  start.time <- Sys.time()
   for (iter in 1:its) {
+    rvtv <- rho * t(V) %*% V
     if (is.null(W)) {
-      U_next <- qr.solve(
-        diag(D) + rho * t(V) %*% V,
-        X + rho * t(V) - t(V) %*% theta
-      )
+      rhs <- X + rho * t(V) - t(V) %*% theta
+      Rlinsolve::lsolve.bicgstab(
+        A = diag(D) + rvtv,
+        B = rhs,
+        xinit = U,
+        maxiter = solve_its,
+        verbose = FALSE)$x
     } else {
-      U_next <- matrix(0, D, D)
       WX <- W * X
       WX[is.na(WX)] <- 0
       rhs <- WX + rho * t(V) - t(V) %*% theta
-      for (d in 1:D) {
-        U_next[, d] <- solve(diag(W[, d]) + rho * t(V) %*% V, rhs[, d])
+
+      U_next <- foreach::foreach (d = 1:D, .combine = cbind) %dopar% {
+        Rlinsolve::lsolve.bicgstab(
+          A = diag(W[, d]) + rvtv,
+          B = rhs[, d],
+          xinit = U[, d],
+          maxiter = solve_its,
+          verbose = FALSE)$x
       }
     }
 
     glm_X <- sqrt(rho) * t(U_next)
     glm_Y <- ((rho + detpen) * diag(D) - t(theta)) / sqrt(rho)
 
-    V_next <- matrix(0, D, D)
-    # TODO(brielin): It's probably a lot faster to move this into the Cpp code.
-    for (d in 1:D) {
+    V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
       penalty_factor <- rep(1, D)
       penalty_factor[d] <- 0
       V_row <- V[d, ]
-      lasso_one_iteration(
-        glm_X, glm_Y[, d], V_row, lambda = penalty_factor * lambda)
-      V_next[d, ] <- V_row
+      lasso(glm_X, glm_Y[, d], V_row, lambda = penalty_factor * lambda,
+            niter = solve_its)
+      V_row
     }
+
     if (symmetrize) {
       V_next <- 0.5 * (V_next + t(V_next)) *
         (abs(V_next) > 1e-10 & abs(t(V_next)) > 1e-10)
@@ -156,7 +155,6 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     L_next <- sum(lagrangian)
     L_delta <- abs(L_next - L) / L
     L <- L_next
-
     if (L_delta > delta_target) {
       delta_met <- 0
     } else {
@@ -164,9 +162,8 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     }
 
     if (verbose) {
-      cat(
-        iter, L, rho, constraint_resid_norm, dual_resid_norm, rmsd_u, rmsd_v, L_delta, "\n"
-      )
+      cat(iter, L, rho, constraint_resid_norm, dual_resid_norm, rmsd_u, rmsd_v,
+          L_delta, Sys.time() - start.time, "\n")
     }
 
     # Converged if some iterations in a row have delta < target.
@@ -176,10 +173,9 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
   }
   return(list(
     "V" = V, "U" = U, "L" = L, "F_term" = lagrangian[1],
-    "l1_term" = lagrangian[2], "det_term" = lagrangian[3], "rho" = rho, "L_delta" = L_delta,
-    "constraint_resid" = constraint_resid_norm,
-    "dual_resid" = dual_resid_norm, "iter" = iter
-  ))
+    "l1_term" = lagrangian[2], "det_term" = lagrangian[3], "rho" = rho,
+    "L_delta" = L_delta, "constraint_resid" = constraint_resid_norm,
+    "dual_resid" = dual_resid_norm, "iter" = iter))
 }
 
 #' Fits inspre model for sequence of lambda values.
@@ -199,10 +195,19 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 #' @param detpen Determinant penalty strength.
 #' @param train_prop Proportion of the dataset to use to train the model. Set
 #'   to 1.0 to use all data.
+#' @param mu rho modification parameter for ADMM. Rho will be
+#'   increased/decreased when the dual constrant and primal constraint are off
+#'   by a factor of > mu.
+#' @param tau rho modification parameter for ADMM. When called for, rho will be
+#'   increased/decreased by the factor tau.
+#' @param solve_its Integer, number of iterations of bicgstab/lasso to run
+#'   for each U and V update.
+#' @param ncores Integer, number of cores to use.
 fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
-                                    its = 1000, delta_target = 1e-4,
-                                    symmetrize = FALSE, verbose = 1,
-                                    detpen = 0.0, train_prop = 1.0, warm_start = NULL) {
+                                its = 1000, delta_target = 1e-4,
+                                symmetrize = FALSE, verbose = 1,
+                                detpen = 0.0, train_prop = 1.0,
+                                mu = 5, tau = 2.5, solve_its = 3, ncores = 1) {
   # Break the matrix into training and test sets, equally and at random.
   D <- nrow(X)
   if(train_prop == 1.0){
@@ -233,6 +238,7 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
   F_term_path <-
   train_error <- vector("numeric", length = length(lambda))
   test_error <- vector("numeric", length = length(lambda))
+  warm_start = NULL
   for (i in 1:length(lambda)) {
     lambda_i <- lambda[i]
     if(length(detpen) > 1){
@@ -240,14 +246,17 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
     } else {
       detpen_i = detpen
     }
-    inspre_res <- inspre_worker(X = X, W = train_W,
-                                lambda = lambda_i,
-                                rho = rho, warm_start = warm_start, its = its,
-                                delta_target = delta_target, symmetrize = symmetrize,
-                                verbose = (verbose == 2), detpen = detpen_i)
+    inspre_res <- inspre_worker(
+      X = X, W = train_W, lambda = lambda_i, rho = rho, warm_start = warm_start,
+      its = its, delta_target = delta_target, symmetrize = symmetrize,
+      verbose = (verbose == 2), detpen = detpen_i, mu = mu, tau = tau,
+      solve_its = solve_its, ncores = ncores)
     if (verbose) {
-      cat(sprintf("Converged to L = %f in %d iterations for lambda = %f.\n L_delta = %e, constraint_resid = %e, dual_resid = %e.\n",
-                  inspre_res$L, inspre_res$iter, lambda_i, inspre_res$L_delta, inspre_res$constraint_resid, inspre_res$dual_resid))
+      cat(sprintf(paste("Converged to L = %f in %d iterations for lambda = %f.",
+                        "\n L_delta = %e, constraint_resid = %e, dual_resid = ",
+                        "%e.\n", sep = ""),
+                  inspre_res$L, inspre_res$iter, lambda_i, inspre_res$L_delta,
+                  inspre_res$constraint_resid, inspre_res$dual_resid))
     }
     warm_start <- inspre_res
     V_all[, , i] <- inspre_res$V
@@ -255,14 +264,17 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
     rho_used[i] <- inspre_res$rho
     L_path[i] <- inspre_res$L
     if(is.null(train_W)){
-      train_error[i] <- sqrt(mean(off_diagonal(X - inspre_res$U)^2, na.rm = TRUE))
+      train_error[i] <- sqrt(
+        mean(off_diagonal(X - inspre_res$U)^2, na.rm = TRUE))
     } else{
-      train_error[i] <- sqrt(mean(off_diagonal(train_W * (X - inspre_res$U))^2, na.rm = TRUE))
+      train_error[i] <- sqrt(
+        mean(off_diagonal(train_W * (X - inspre_res$U))^2, na.rm = TRUE))
     }
-    test_error[i] <- sqrt(mean(off_diagonal(test_W * (X - inspre_res$U))^2, na.rm = TRUE))
+    test_error[i] <- sqrt(
+      mean(off_diagonal(test_W * (X - inspre_res$U))^2, na.rm = TRUE))
   }
-  return(list("V" = V_all, "U" = U_all, "lambda" = lambda, "rho" = rho_used, "L" = L_path,
-              train_error = train_error, test_error = test_error))
+  return(list("V" = V_all, "U" = U_all, "lambda" = lambda, "rho" = rho_used,
+              "L" = L_path, train_error = train_error, test_error = test_error))
 }
 
 #' Finds the inverse of X using Inverse Sparse Regression.
@@ -287,12 +299,29 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
 #' @param train_prop Float between 0 and 1. Proportion of data to use for
 #'   training in cross-validation.
 #' @param cv_folds Integer. Number of cross-validation folds to perform.
+#' @param mu rho modification parameter for ADMM. Rho will be
+#'   increased/decreased when the dual constrant and primal constraint are off
+#'   by a factor of > mu.
+#' @param tau rho modification parameter for ADMM. When called for, rho will be
+#'   increased/decreased by the factor tau.
+#' @param solve_its Integer, number of iterations of bicgstab/lasso to run
+#'   for each U and V update.
+#' @param ncores Integer, number of cores to use.
 #' @export
 inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
                    lambda_min_ratio = 1e-2, nlambda = 20,
-                   its = 1000, delta_target = 1e-4,symmetrize = FALSE, verbose = 1,
-                   detpen = 0.0, train_prop = 0.8, cv_folds = 0) {
+                   its = 1000, delta_target = 1e-4,symmetrize = FALSE,
+                   verbose = 1, detpen = 0.0, train_prop = 0.8, cv_folds = 0,
+                   mu = 5, tau = 1.5, solve_its = 3, ncores = 1) {
   D <- ncol(X)
+
+  if(any(is.na(X))){
+    if(is.null(W)){
+      W <- matrix(1L, nrow = D, ncol = D)
+    }
+    W[is.na(X)] <- 0
+  }
+
   if (is.null(lambda)) {
     lambda_max <- max(abs(off_diagonal(X)), na.rm = TRUE)
     lambda_min <- lambda_min_ratio * lambda_max
@@ -305,7 +334,8 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
   full_res <- fit_inspre_sequence(
     X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
     symmetrize = symmetrize, verbose = verbose, detpen = detpen, its = its,
-    train_prop = 1.0)
+    train_prop = 1.0, mu = mu, tau = tau, solve_its = solve_its,
+    ncores = ncores)
 
   if (cv_folds > 0) {
     xi_mat <- array(0, dim = c(D, D, length(lambda)))
@@ -317,7 +347,8 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
       cv_res <- fit_inspre_sequence(
         X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
         symmetrize = symmetrize, verbose = verbose, detpen = detpen,
-        train_prop = train_prop, its = its)
+        train_prop = train_prop, its = its, mu = mu, tau = tau,
+        solve_its = solve_its, ncores = ncores)
       error_matrix[i, ] = cv_res$test_error
       V_nz <- abs(cv_res$V) > 1e-8
       xi_mat <- xi_mat + V_nz
@@ -325,10 +356,12 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
     xi_mat <- xi_mat/cv_folds
     xi_mat <- 2 * xi_mat * (1-xi_mat)
     D_hat <- apply(xi_mat, 3, mean)
-    D_hat_se <- apply(xi_mat, 3, function(x){ stats::sd(x)/sqrt(length(x)) })
+    D_hat_se <- apply(
+      xi_mat, 3, function(x){ stats::sd(x)/sqrt(length(x)) })
 
     test_error <- apply(error_matrix, 2, mean)
-    test_error_se <- apply(error_matrix, 2, function(x){ stats::sd(x)/sqrt(length(x))})
+    test_error_se <- apply(
+      error_matrix, 2, function(x){ stats::sd(x)/sqrt(length(x))})
     full_res$test_error_se <- test_error_se
     full_res$test_error <- test_error
     full_res$D_hat <- D_hat

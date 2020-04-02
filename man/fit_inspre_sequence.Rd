@@ -15,7 +15,10 @@ fit_inspre_sequence(
   verbose = 1,
   detpen = 0,
   train_prop = 1,
-  warm_start = NULL
+  mu = 5,
+  tau = 2.5,
+  solve_its = 3,
+  ncores = 1
 )
 }
 \arguments{
@@ -43,6 +46,18 @@ issues.}
 
 \item{train_prop}{Proportion of the dataset to use to train the model. Set
 to 1.0 to use all data.}
+
+\item{mu}{rho modification parameter for ADMM. Rho will be
+increased/decreased when the dual constrant and primal constraint are off
+by a factor of > mu.}
+
+\item{tau}{rho modification parameter for ADMM. When called for, rho will be
+increased/decreased by the factor tau.}
+
+\item{solve_its}{Integer, number of iterations of bicgstab/lasso to run
+for each U and V update.}
+
+\item{ncores}{Integer, number of cores to use.}
 }
 \description{
 Fits inspre model for sequence of lambda values.

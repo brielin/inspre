@@ -5,12 +5,13 @@
 #'
 #' Minimize .5 || Y - XB ||^2_2 + gamma |B|_1
 #'
-#' @param X NxP matrix of covariates
-#' @param Y N-vector of response
-#' @param B P-vector of coefficents (to be updated)
-#' @param lambda P-vector L1 regulation coeffs
+#' @param X NxP matrix of covariates.
+#' @param Y N-vector of response.
+#' @param B P-vector of coefficents (to be updated).
+#' @param lambda P-vector L1 regulation coeffs.
+#' @param niter Integer, number of lasso iterations to perform.
 #' @export
-lasso_one_iteration <- function(X, Y, B, lambda) {
-    .Call(`_inspre_lasso_one_iteration`, X, Y, B, lambda)
+lasso <- function(X, Y, B, lambda, niter) {
+    .Call(`_inspre_lasso`, X, Y, B, lambda, niter)
 }
 

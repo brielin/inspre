@@ -17,7 +17,11 @@ inspre(
   verbose = 1,
   detpen = 0,
   train_prop = 0.8,
-  cv_folds = 0
+  cv_folds = 0,
+  mu = 5,
+  tau = 1.5,
+  solve_its = 3,
+  ncores = 1
 )
 }
 \arguments{
@@ -53,6 +57,18 @@ issues.}
 training in cross-validation.}
 
 \item{cv_folds}{Integer. Number of cross-validation folds to perform.}
+
+\item{mu}{rho modification parameter for ADMM. Rho will be
+increased/decreased when the dual constrant and primal constraint are off
+by a factor of > mu.}
+
+\item{tau}{rho modification parameter for ADMM. When called for, rho will be
+increased/decreased by the factor tau.}
+
+\item{solve_its}{Integer, number of iterations of bicgstab/lasso to run
+for each U and V update.}
+
+\item{ncores}{Integer, number of cores to use.}
 }
 \description{
 Finds the inverse of X using Inverse Sparse Regression.

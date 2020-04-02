@@ -16,7 +16,9 @@ inspre_worker(
   verbose = FALSE,
   detpen = 0,
   mu = 5,
-  tau = 2
+  tau = 1.5,
+  solve_its = 3,
+  ncores = 1
 )
 }
 \arguments{
@@ -48,6 +50,11 @@ by a factor of > mu.}
 
 \item{tau}{rho modification parameter for ADMM. When called for, rho will be
 increased/decreased by the factor tau.}
+
+\item{solve_its}{Integer, number of iterations of bicgstab/lasso to run
+for each U and V update.}
+
+\item{ncores}{Integer, number of cores to use.}
 }
 \description{
 Worker function to fit inspre for a single value of lambda.

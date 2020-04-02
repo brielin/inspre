@@ -7,9 +7,9 @@
 
 using namespace Rcpp;
 
-// lasso_one_iteration
-double lasso_one_iteration(const Map<MatrixXd> X, const Map<VectorXd> Y, Map<VectorXd> B, const Map<VectorXd> lambda);
-RcppExport SEXP _inspre_lasso_one_iteration(SEXP XSEXP, SEXP YSEXP, SEXP BSEXP, SEXP lambdaSEXP) {
+// lasso
+double lasso(const Map<MatrixXd> X, const Map<VectorXd> Y, Map<VectorXd> B, const Map<VectorXd> lambda, int niter);
+RcppExport SEXP _inspre_lasso(SEXP XSEXP, SEXP YSEXP, SEXP BSEXP, SEXP lambdaSEXP, SEXP niterSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -17,13 +17,14 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const Map<VectorXd> >::type Y(YSEXP);
     Rcpp::traits::input_parameter< Map<VectorXd> >::type B(BSEXP);
     Rcpp::traits::input_parameter< const Map<VectorXd> >::type lambda(lambdaSEXP);
-    rcpp_result_gen = Rcpp::wrap(lasso_one_iteration(X, Y, B, lambda));
+    Rcpp::traits::input_parameter< int >::type niter(niterSEXP);
+    rcpp_result_gen = Rcpp::wrap(lasso(X, Y, B, lambda, niter));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_inspre_lasso_one_iteration", (DL_FUNC) &_inspre_lasso_one_iteration, 4},
+    {"_inspre_lasso", (DL_FUNC) &_inspre_lasso, 5},
     {NULL, NULL, 0}
 };
 
