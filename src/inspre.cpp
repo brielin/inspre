@@ -35,11 +35,8 @@ inline double sign(double x) {
 //' @param niter Integer, number of lasso iterations to perform.
 //' @export
 // [[Rcpp::export]]
-double lasso(const Map<MatrixXd> X,
-                           const Map<VectorXd> Y,
-                           Map<VectorXd> B,
-                           const Map<VectorXd> lambda,
-                           int niter) {
+double lasso(const Map<MatrixXd> X, const Map<VectorXd> Y, Map<VectorXd> B,
+             const Map<VectorXd> lambda, int niter) {
   int P = X.cols();
   VectorXd E = Y - X * B;
   double lambda_B_L1 = 0.0;

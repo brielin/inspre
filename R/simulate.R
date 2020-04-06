@@ -38,6 +38,40 @@ calc_metrics <- function(X, X_true, eps = 1e-10) {
               "weight_acc" = weight_acc))
 }
 
+#' Calculates STARS cross-validation.
+#'
+#' @param X N x D data matrix.
+#' @param method Function that returns a list with two elements. "theta", a
+#'   D x D x nlambda matrix and "lambda" a list of lambda values used.
+#' @param train_prop Float, proportion of rows of X to use at each iteration.
+#' @param cv_folds Integer, number of cross-validation folds.
+#' @param beta Cutoff for determining which value of lambda to choose.
+stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10, beta = 0.1){
+  N = dim(X)[1]
+  method_res <- method(X)
+  theta_hat <- method_res$theta
+  lambda <- method_res$lambda
+  xi_mat <- array(0, dim = c(D, D, length(lambda)))
+  for (fold in 1:cv_folds){
+    train <- runif(N) < train_prop
+    X_train = X[train, ]
+    S_train <- cor_w_se(X_train)$S_hat
+    theta_cv <- method(X_train)$theta
+
+    theta_nz <- abs(theta_cv) > 1e-8
+    xi_mat <- xi_mat + theta_nz
+  }
+  xi_mat <- xi_mat/cv_folds
+  xi_mat <- 2 * xi_mat * (1-xi_mat)
+  D_hat <- apply(xi_mat, 3, mean)
+  D_hat_se <- apply(
+    xi_mat, 3, function(x){ stats::sd(x)/sqrt(length(x)) })
+  selected_index <- which(D_hat + D_hat_se > beta)[1] - 1
+  return(list(
+    "theta" = theta_hat[, , selected_index, drop = FALSE],
+    "lambda" = lambda[selected_index]))
+}
+
 #' Generates correlation/precision matrices for gaussian graphical model.
 #'
 #' @param D Integer. Dimensionality.

@@ -10,18 +10,18 @@ off_diagonal <- function(X) {
   return(X[!diag(D)])
 }
 
-inspre_primal <- function(X, U, V, lambda, alpha) {
+inspre_primal <- function(X, U, V, lambda, gamma) {
   x_dist <- .5 * sum((X - U)^2, na.rm = TRUE)
   l1_term <- lambda * sum(abs(off_diagonal(V)))
-  det_term <- -1 * alpha * determinant(V)$modulus
+  det_term <- -1 * gamma * determinant(V)$modulus
   return(c(x_dist, l1_term, det_term))
 }
 
-inspre_lagrangian <- function(X, U, V, theta, rho, lambda, alpha) {
+inspre_lagrangian <- function(X, U, V, theta, rho, lambda, gamma) {
   VU_minus_I <- V %*% U - diag(nrow(U))
   VU_term1 <- sum(theta * VU_minus_I)
   VU_term2 <- .5 * rho * sum(VU_minus_I^2)
-  return(c(inspre_primal(X, U, V, lambda, alpha), VU_term1, VU_term2))
+  return(c(inspre_primal(X, U, V, lambda, gamma), VU_term1, VU_term2))
 }
 
 #' Helper function to make weights for inspre.
@@ -63,7 +63,7 @@ make_weights <- function(SE, max_min_ratio = NULL) {
 #'   is symmetric, the output isn't always perfectly symmetric due to numerical
 #'   issues.
 #' @param verbose Bool. True to print solution progress.
-#' @param detpen Determinant penalty strength.
+#' @param gamma Float. Determinant penalty strength.
 #' @param mu rho modification parameter for ADMM. Rho will be
 #'   increased/decreased when the dual constrant and primal constraint are off
 #'   by a factor of > mu.
@@ -73,10 +73,13 @@ make_weights <- function(SE, max_min_ratio = NULL) {
 #'   for each U and V update.
 #' @param ncores Integer, number of cores to use.
 inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
-                          its = 1000, delta_target = 1e-4, warm_start = NULL,
-                          symmetrize = FALSE, verbose = FALSE, detpen = 0.0,
+                          its = 100, delta_target = 1e-4, warm_start = NULL,
+                          symmetrize = FALSE, verbose = FALSE, gamma = 0.0,
                           mu = 5, tau = 1.5, solve_its = 3, ncores = 1) {
   D <- nrow(X)
+  if(is.null(W)){
+    W <- matrix(1L, nrow = D, ncol = D)
+  }
   theta <- matrix(0.0, D, D)
   if (is.null(warm_start)) {
     V <- diag(D)
@@ -86,40 +89,41 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     V <- warm_start$V
     U <- warm_start$U
   }
-  L <- sum(inspre_lagrangian(X, U, V, theta, rho, lambda, alpha = detpen))
+  L <- sum(inspre_lagrangian(X, U, V, theta, rho, lambda, gamma))
 
   min_delta_met <- 2
   delta_met <- 0
 
   doMC::registerDoMC(cores = ncores)
-  start.time <- Sys.time()
+  start_time <- Sys.time()
   for (iter in 1:its) {
     rvtv <- rho * t(V) %*% V
-    if (is.null(W)) {
-      rhs <- X + rho * t(V) - t(V) %*% theta
+    # if (is.null(W)) {
+      # rhs <- X + rho * t(V) - t(V) %*% theta
+      # Rlinsolve::lsolve.bicgstab(
+      #   A = diag(D) + rvtv,
+      #   B = rhs,
+      #   xinit = U,
+      #   maxiter = solve_its,
+      #   verbose = FALSE)$x
+      # WX <- X
+    # } else {
+    # }
+    WX <- W * X
+    WX[is.na(WX)] <- 0
+    rhs <- WX + rho * t(V) - t(V) %*% theta
+
+    U_next <- foreach::foreach (d = 1:D, .combine = cbind) %dopar% {
       Rlinsolve::lsolve.bicgstab(
-        A = diag(D) + rvtv,
-        B = rhs,
-        xinit = U,
+        A = diag(W[, d]) + rvtv,
+        B = rhs[, d],
+        xinit = U[, d],
         maxiter = solve_its,
         verbose = FALSE)$x
-    } else {
-      WX <- W * X
-      WX[is.na(WX)] <- 0
-      rhs <- WX + rho * t(V) - t(V) %*% theta
-
-      U_next <- foreach::foreach (d = 1:D, .combine = cbind) %dopar% {
-        Rlinsolve::lsolve.bicgstab(
-          A = diag(W[, d]) + rvtv,
-          B = rhs[, d],
-          xinit = U[, d],
-          maxiter = solve_its,
-          verbose = FALSE)$x
-      }
     }
 
     glm_X <- sqrt(rho) * t(U_next)
-    glm_Y <- ((rho + detpen) * diag(D) - t(theta)) / sqrt(rho)
+    glm_Y <- ((rho + gamma) * diag(D) - t(theta)) / sqrt(rho)
 
     V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
       penalty_factor <- rep(1, D)
@@ -151,7 +155,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     rmsd_v <- sqrt(mean((V - V_next)^2))
     U <- U_next
     V <- V_next
-    lagrangian <- inspre_lagrangian(X, U, V, theta, rho, lambda, alpha = detpen)
+    lagrangian <- inspre_lagrangian(X, U, V, theta, rho, lambda, gamma)
     L_next <- sum(lagrangian)
     L_delta <- abs(L_next - L) / L
     L <- L_next
@@ -163,7 +167,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 
     if (verbose) {
       cat(iter, L, rho, constraint_resid_norm, dual_resid_norm, rmsd_u, rmsd_v,
-          L_delta, Sys.time() - start.time, "\n")
+          L_delta, Sys.time() - start_time, "\n")
     }
 
     # Converged if some iterations in a row have delta < target.
@@ -171,11 +175,13 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
       break
     }
   }
+  end_time <- Sys.time()
   return(list(
     "V" = V, "U" = U, "L" = L, "F_term" = lagrangian[1],
     "l1_term" = lagrangian[2], "det_term" = lagrangian[3], "rho" = rho,
     "L_delta" = L_delta, "constraint_resid" = constraint_resid_norm,
-    "dual_resid" = dual_resid_norm, "iter" = iter))
+    "dual_resid" = dual_resid_norm, "iter" = iter,
+    "time" = end_time - start_time))
 }
 
 #' Fits inspre model for sequence of lambda values.
@@ -192,7 +198,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 #'   issues.
 #' @param verbose 0, 1 or 2. 2 to print convergence progress for each lambda,
 #'   1 to print convergence result for each lambda, 0 for no output.
-#' @param detpen Determinant penalty strength.
+#' @param gamma Float or sequence of floats. Determinant penalty strength.
 #' @param train_prop Proportion of the dataset to use to train the model. Set
 #'   to 1.0 to use all data.
 #' @param mu rho modification parameter for ADMM. Rho will be
@@ -204,12 +210,15 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 #'   for each U and V update.
 #' @param ncores Integer, number of cores to use.
 fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
-                                its = 1000, delta_target = 1e-4,
+                                its = 100, delta_target = 1e-4,
                                 symmetrize = FALSE, verbose = 1,
-                                detpen = 0.0, train_prop = 1.0,
+                                gamma = 0.0, train_prop = 1.0,
                                 mu = 5, tau = 2.5, solve_its = 3, ncores = 1) {
   # Break the matrix into training and test sets, equally and at random.
   D <- nrow(X)
+  if(is.null(gamma)){
+    gamma <- 0.0
+  }
   if(train_prop == 1.0){
     train_W <- W
     test_W <- numeric(0)
@@ -235,27 +244,28 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
   j <- 1
   rho_used <- vector("numeric", length = length(lambda))
   L_path <- vector("numeric", length = length(lambda))
-  F_term_path <-
+  F_term_path <- vector("numeric", length = length(lambda))
   train_error <- vector("numeric", length = length(lambda))
   test_error <- vector("numeric", length = length(lambda))
   warm_start = NULL
   for (i in 1:length(lambda)) {
     lambda_i <- lambda[i]
-    if(length(detpen) > 1){
-      detpen_i = detpen[i]
+    if(length(gamma) > 1){
+      gamma_i = gamma[i]
     } else {
-      detpen_i = detpen
+      gamma_i = gamma
     }
     inspre_res <- inspre_worker(
       X = X, W = train_W, lambda = lambda_i, rho = rho, warm_start = warm_start,
       its = its, delta_target = delta_target, symmetrize = symmetrize,
-      verbose = (verbose == 2), detpen = detpen_i, mu = mu, tau = tau,
+      verbose = (verbose == 2), gamma = gamma_i, mu = mu, tau = tau,
       solve_its = solve_its, ncores = ncores)
     if (verbose) {
       cat(sprintf(paste("Converged to L = %f in %d iterations for lambda = %f.",
+                        " Time %f.",
                         "\n L_delta = %e, constraint_resid = %e, dual_resid = ",
                         "%e.\n", sep = ""),
-                  inspre_res$L, inspre_res$iter, lambda_i, inspre_res$L_delta,
+                  inspre_res$L, inspre_res$iter, lambda_i, inspre_res$time, inspre_res$L_delta,
                   inspre_res$constraint_resid, inspre_res$dual_resid))
     }
     warm_start <- inspre_res
@@ -273,7 +283,7 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
     test_error[i] <- sqrt(
       mean(off_diagonal(test_W * (X - inspre_res$U))^2, na.rm = TRUE))
   }
-  return(list("V" = V_all, "U" = U_all, "lambda" = lambda, "rho" = rho_used,
+  return(list("V" = V_all, "U" = U_all, "lambda" = lambda, "gamma" = gamma, "rho" = rho_used,
               "L" = L_path, train_error = train_error, test_error = test_error))
 }
 
@@ -288,6 +298,12 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
 #'   times this value will be used.
 #' @param lambda_min_ratio Float, ratio of maximum lambda to minimum lambda.
 #' @param nlambda Integer. Number of lambda values to try.
+#' @param alpha Float between 0 and 1 or NULL. If > 0, the model will be fit
+#'   once with gamma = 0 to find L0, then all subsequent fits will use
+#'   gamma = alpha * L0 / D. Set to NULL to provide gamma directly.
+#' @param gamma Float or sequence of nlambda floats or NULL. Determinant
+#'   regularization strength to use (for each lambda value). It is recommended
+#'   to set alpha rather than setting this directly.
 #' @param its Integer. Maximum number of iterations.
 #' @param delta_target Float. Target change in solution.
 #' @param symmetrize True to force the output to be symmetric. If the input
@@ -295,7 +311,6 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
 #'   issues.
 #' @param verbose 0, 1 or 2. 2 to print convergence progress for each lambda,
 #'   1 to print convergence result for each lambda, 0 for no output.
-#' @param detpen Determinant penalty strength.
 #' @param train_prop Float between 0 and 1. Proportion of data to use for
 #'   training in cross-validation.
 #' @param cv_folds Integer. Number of cross-validation folds to perform.
@@ -309,10 +324,10 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
 #' @param ncores Integer, number of cores to use.
 #' @export
 inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
-                   lambda_min_ratio = 1e-2, nlambda = 20,
-                   its = 1000, delta_target = 1e-4,symmetrize = FALSE,
-                   verbose = 1, detpen = 0.0, train_prop = 0.8, cv_folds = 0,
-                   mu = 5, tau = 1.5, solve_its = 3, ncores = 1) {
+                   lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
+                   gamma = NULL, its = 100, delta_target = 1e-4,
+                   symmetrize = FALSE, verbose = 1, train_prop = 0.8,
+                   cv_folds = 0, mu = 5, tau = 1.5, solve_its = 3, ncores = 1) {
   D <- ncol(X)
 
   if(any(is.na(X))){
@@ -328,12 +343,30 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
     lambda <- exp(seq(log(lambda_max), log(lambda_min), length.out = nlambda))
   }
 
-  if (verbose){
-    cat("Fitting model with full dataset.\n")
+  if(verbose){
+    cat("Fitting model with full dataset. \n")
+  }
+  if(!is.null(alpha)){
+    gamma <- 0
+    if(alpha > 0){
+      if(verbose){
+        cat("Fitting with gamma = 0. \n")
+      }
+      L0 <- fit_inspre_sequence(
+        X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
+        symmetrize = symmetrize, verbose = verbose, gamma = 0, its = its,
+        train_prop = 1.0, mu = mu, tau = tau, solve_its = solve_its,
+        ncores = ncores)$L
+
+      if(verbose){
+        cat("Refitting with gamma = alpha * L / D. \n")
+      }
+      gamma <- alpha * L0 / D
+    }
   }
   full_res <- fit_inspre_sequence(
     X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
-    symmetrize = symmetrize, verbose = verbose, detpen = detpen, its = its,
+    symmetrize = symmetrize, verbose = verbose, gamma = gamma, its = its,
     train_prop = 1.0, mu = mu, tau = tau, solve_its = solve_its,
     ncores = ncores)
 
@@ -346,7 +379,7 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
       }
       cv_res <- fit_inspre_sequence(
         X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
-        symmetrize = symmetrize, verbose = verbose, detpen = detpen,
+        symmetrize = symmetrize, verbose = verbose, gamma = gamma,
         train_prop = train_prop, its = its, mu = mu, tau = tau,
         solve_its = solve_its, ncores = ncores)
       error_matrix[i, ] = cv_res$test_error
