@@ -9,12 +9,12 @@ inspre_worker(
   W = NULL,
   rho = 1,
   lambda = 0.01,
-  its = 1000,
+  its = 100,
   delta_target = 1e-04,
   warm_start = NULL,
   symmetrize = FALSE,
   verbose = FALSE,
-  detpen = 0,
+  gamma = 0,
   mu = 5,
   tau = 1.5,
   solve_its = 3,
@@ -42,7 +42,7 @@ issues.}
 
 \item{verbose}{Bool. True to print solution progress.}
 
-\item{detpen}{Determinant penalty strength.}
+\item{gamma}{Float. Determinant penalty strength.}
 
 \item{mu}{rho modification parameter for ADMM. Rho will be
 increased/decreased when the dual constrant and primal constraint are off

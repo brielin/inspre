@@ -52,4 +52,13 @@ test_that("inspre_works", {
   expect_equal(length(res$L), 10)
 })
 
-# symmetrize
+test_that("inspre_cv_works", {
+  X <- res$S_hat
+  SE <- res$SE_S
+  X[1, 2] <- NA
+  SE[1, 2] <- NA
+  W <- make_weights(SE)
+  res <- inspre(X, W, its = 10, nlambda = 10, verbose = 0, cv_folds = 3)
+  expect_equal(length(res$D_hat), 10)
+  expect_equal(length(res$D_hat_se), 10)
+})

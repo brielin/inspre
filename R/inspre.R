@@ -98,21 +98,11 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
   start_time <- Sys.time()
   for (iter in 1:its) {
     rvtv <- rho * t(V) %*% V
-    # if (is.null(W)) {
-      # rhs <- X + rho * t(V) - t(V) %*% theta
-      # Rlinsolve::lsolve.bicgstab(
-      #   A = diag(D) + rvtv,
-      #   B = rhs,
-      #   xinit = U,
-      #   maxiter = solve_its,
-      #   verbose = FALSE)$x
-      # WX <- X
-    # } else {
-    # }
     WX <- W * X
     WX[is.na(WX)] <- 0
     rhs <- WX + rho * t(V) - t(V) %*% theta
 
+    d <- NULL
     U_next <- foreach::foreach (d = 1:D, .combine = cbind) %dopar% {
       Rlinsolve::lsolve.bicgstab(
         A = diag(W[, d]) + rvtv,
@@ -125,6 +115,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     glm_X <- sqrt(rho) * t(U_next)
     glm_Y <- ((rho + gamma) * diag(D) - t(theta)) / sqrt(rho)
 
+    d <- NULL
     V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
       penalty_factor <- rep(1, D)
       penalty_factor[d] <- 0

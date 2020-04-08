@@ -48,12 +48,13 @@ calc_metrics <- function(X, X_true, eps = 1e-10) {
 #' @param beta Cutoff for determining which value of lambda to choose.
 stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10, beta = 0.1){
   N = dim(X)[1]
+  D = dim(X)[2]
   method_res <- method(X)
   theta_hat <- method_res$theta
   lambda <- method_res$lambda
   xi_mat <- array(0, dim = c(D, D, length(lambda)))
   for (fold in 1:cv_folds){
-    train <- runif(N) < train_prop
+    train <- stats::runif(N) < train_prop
     X_train = X[train, ]
     S_train <- cor_w_se(X_train)$S_hat
     theta_cv <- method(X_train)$theta
@@ -66,7 +67,7 @@ stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10, beta = 0.1){
   D_hat <- apply(xi_mat, 3, mean)
   D_hat_se <- apply(
     xi_mat, 3, function(x){ stats::sd(x)/sqrt(length(x)) })
-  selected_index <- which(D_hat + D_hat_se > beta)[1] - 1
+  selected_index <- which(D_hat - D_hat_se > beta)[1]
   return(list(
     "theta" = theta_hat[, , selected_index, drop = FALSE],
     "lambda" = lambda[selected_index]))

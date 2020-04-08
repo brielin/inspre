@@ -9,11 +9,11 @@ fit_inspre_sequence(
   lambda,
   W = NULL,
   rho = 1,
-  its = 1000,
+  its = 100,
   delta_target = 1e-04,
   symmetrize = FALSE,
   verbose = 1,
-  detpen = 0,
+  gamma = 0,
   train_prop = 1,
   mu = 5,
   tau = 2.5,
@@ -42,7 +42,7 @@ issues.}
 \item{verbose}{0, 1 or 2. 2 to print convergence progress for each lambda,
 1 to print convergence result for each lambda, 0 for no output.}
 
-\item{detpen}{Determinant penalty strength.}
+\item{gamma}{Float or sequence of floats. Determinant penalty strength.}
 
 \item{train_prop}{Proportion of the dataset to use to train the model. Set
 to 1.0 to use all data.}

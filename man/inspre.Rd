@@ -11,11 +11,12 @@ inspre(
   lambda = NULL,
   lambda_min_ratio = 0.01,
   nlambda = 20,
-  its = 1000,
+  alpha = 0,
+  gamma = NULL,
+  its = 100,
   delta_target = 1e-04,
   symmetrize = FALSE,
   verbose = 1,
-  detpen = 0,
   train_prop = 0.8,
   cv_folds = 0,
   mu = 5,
@@ -40,6 +41,14 @@ times this value will be used.}
 
 \item{nlambda}{Integer. Number of lambda values to try.}
 
+\item{alpha}{Float between 0 and 1 or NULL. If > 0, the model will be fit
+once with gamma = 0 to find L0, then all subsequent fits will use
+gamma = alpha * L0 / D. Set to NULL to provide gamma directly.}
+
+\item{gamma}{Float or sequence of nlambda floats or NULL. Determinant
+regularization strength to use (for each lambda value). It is recommended
+to set alpha rather than setting this directly.}
+
 \item{its}{Integer. Maximum number of iterations.}
 
 \item{delta_target}{Float. Target change in solution.}
@@ -50,8 +59,6 @@ issues.}
 
 \item{verbose}{0, 1 or 2. 2 to print convergence progress for each lambda,
 1 to print convergence result for each lambda, 0 for no output.}
-
-\item{detpen}{Determinant penalty strength.}
 
 \item{train_prop}{Float between 0 and 1. Proportion of data to use for
 training in cross-validation.}

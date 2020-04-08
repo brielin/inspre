@@ -5,7 +5,7 @@ date: "1/28/2020"
 output: html_document
 ---
 
-## Gaussian Graphical Models test
+## Gaussian Graphical Models
 ```{r}
 require(foreach)
 require(tidyverse)
@@ -15,10 +15,11 @@ load_all()
 ```
 
 ```{r}
-# Smaller-scale simulation to determine if alpha is useful.
-nlambda <- 20
+# Initial smaller scale simulation.
+nlambda <- 25
+lambda_min_ratio <- 0.1
 cv_folds <- 10
-beta = 0.1
+beta = 0.05
 
 D <- 25
 N <- 100
@@ -26,63 +27,46 @@ p_net <- 0.1
 sd_net <- 1
 min_missing = 0.0
 max_missing = 0.0
-niter <- 1
+niter <- 100
 
-inspre_function_0 <- function(X){
+glasso_function <- function(X){
+  res <- huge::huge.glasso(
+    X, nlambda = nlambda, lambda.min.ratio = lambda_min_ratio, verbose = FALSE)
+  return(list("theta" = simplify2array(res$icov), "lambda" = res$lambda))
+}
+
+glasso_stars_function <- function(X){
+  return(stars_cv(X, glasso_function, cv_folds = cv_folds, beta = beta))
+}
+
+inspre_function <- function(X){
   S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 0)
+  res <- inspre(
+    S_hat, verbose = 0, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    alpha = 0, symmetrize = TRUE)
   return(list("theta" = res$V, "lambda" = res$lambda))
 }
 
-inspre_function_1 <- function(X){
+inspre_mask_function <- function(X){
   S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 0.5)
-  return(list("theta" = res$V, "lambda" = res$lambda))
-}
-
-inspre_function_2 <- function(X){
-  S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 1)
-  return(list("theta" = res$V, "lambda" = res$lambda))
-}
-
-inspre_mask_function_0 <- function(X){
-  S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 0, cv_folds = cv_folds)
-  selected_index <- which(res$D_hat + res$D_hat_se > beta)[1] - 1
+  res <- inspre(
+    S_hat, verbose = 0, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    alpha = 0, cv_folds = cv_folds, symmetrize = TRUE)
+  selected_index <- which(res$D_hat - res$D_hat_se > beta)[1]
   return(list(
     "theta" = res$V[, , selected_index, drop = FALSE],
-    "lambda" = res$lamdba[selected_index]))
+    "lambda" = res$lambda[selected_index]))
 }
 
-inspre_mask_function_1 <- function(X){
-  S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 0.5, cv_folds = cv_folds)
-  selected_index <- which(res$D_hat + res$D_hat_se > beta)[1] - 1
-  return(list(
-    "theta" = res$V[, , selected_index, drop = FALSE],
-    "lambda" = res$lamdba[selected_index]))
-}
+methods = list("glasso_best" = glasso_function,
+               "glasso_stars" = glasso_stars_function,
+               "inspre_best" = inspre_function,
+               "inspre_mask" = inspre_mask_function)
 
-inspre_mask_function_2 <- function(X){
-  S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 1, cv_folds = cv_folds)
-  selected_index <- which(res$D_hat + res$D_hat_se > beta)[1] - 1
-  return(list(
-    "theta" = res$V[, , selected_index, drop = FALSE],
-    "lambda" = res$lamdba[selected_index]))
-}
-
-methods = list("inspre_best_0" = inspre_function_0,
-               "inspre_best_1" = inspre_function_1,
-               "inspre_best_2" = inspre_function_2,
-               "inspre_mask_0" = inspre_mask_function_0,
-               "inspre_mask_1" = inspre_mask_function_1,
-               "inspre_mask_2" = inspre_mask_function_2)
-
-start_time <- Sys.time()
-plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %do%{
-  print(c(iter, Sys.time() - start_time))
+doMC::registerDoMC(cores = 32)
+plot_tibble <- foreach(iter = 1:niter,
+                       .combine = bind_rows,
+                       .inorder = FALSE) %dopar%{
   dataset <- generate_dataset(
     D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing,
     max_missing = max_missing)
@@ -95,17 +79,44 @@ plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %do%{
   condition_number <- max(svs)/min(svs)
   
   foreach(method = names(methods), .combine = bind_rows) %do% {
-    print(method)
     res <- methods[[method]](X)
+    split_name <-  strsplit(method, "_")[[1]]
     
-    metrics <- map_dfr(array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
+    metrics <- map_dfr(
+      array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
     metrics$lambda <- res$lambda
     metrics$method <- method
+    metrics$name <- split_name[1]
+    metrics$type <- split_name[2]
     metrics$iter <- iter
     metrics$condition_number <- condition_number
-    metrics
+    metrics[which.max(metrics$F1), ]
   }
 }
+```
+
+```{r}
+# Plots for above.
+ggplot(plot_tibble, aes(method, F1)) + 
+  geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+plot_tibble %>% group_by(method) %>%
+  mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
+         mean_weight_acc = mean(weight_acc)) %>%
+  distinct(method, mean_F1, mean_rmse, mean_weight_acc)
+
+lambdas <- plot_tibble %>% select(iter, name, type, lambda) %>%
+  pivot_wider(names_from = type, values_from = lambda)
+lambdas %>% filter(name == "glasso") %>% 
+  ggplot(aes(best, stars, color = name)) + geom_point() + 
+  geom_smooth(method = lm)
+lambdas %>% filter(name == "inspre") %>% 
+  ggplot(aes(best, mask, color = name)) + geom_point() + 
+  geom_smooth(method = lm)
 ```
 
 
@@ -117,15 +128,18 @@ p_net <- 0.1
 sd_net <- 1
 min_missing = 0.0
 max_missing = 0.0
-niter <- 2
+niter <- 100
 
-nlambda <- 20
+nlambda <- 25
+lambda_min_ratio <- 0.1
 cv_folds <- 10
-beta = 0.1
+max_iter <- 50
+beta <- 0.05
 
 glasso_function <- function(X){
-  res <- huge::huge.glasso(X, nlambda = nlambda, verbose = FALSE)
-  return(list("theta" = simplify2array(res$path), "lambda" = res$lambda))
+  res <- huge::huge.glasso(
+    X, nlambda = nlambda, lambda.min.ratio = lambda_min_ratio, verbose = FALSE)
+  return(list("theta" = simplify2array(res$icov), "lambda" = res$lambda))
 }
 
 glasso_stars_function <- function(X){
@@ -133,32 +147,38 @@ glasso_stars_function <- function(X){
 }
 
 inspre_function <- function(X){
-  S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 0.5, ncores = 8)
+  cor_res <- cor_w_se(X)
+  S_hat <- cor_res$S_hat
+  weights <- make_weights(cor_res$SE_S)
+  res <- inspre(
+    S_hat, W = weights, verbose = 1, nlambda = nlambda,
+    lambda_min_ratio = lambda_min_ratio, its = max_iter, rho = 10,
+    symmetrize = TRUE)
   return(list("theta" = res$V, "lambda" = res$lambda))
 }
 
-inspre_stars_function <- function(X){
-  return(stars_cv(X, inspre_function, cv_folds = cv_folds, beta = beta))
-}
-
 inspre_mask_function <- function(X){
-  S_hat <- cor_w_se(X)$S_hat
-  res <- inspre(S_hat, verbose = 0, nlambda = nlambda, alpha = 0.5, cv_folds = cv_folds, ncores = 8)
-  selected_index <- which(res$D_hat + res$D_hat_se > beta)[1] - 1
+  cor_res <- cor_w_se(X)
+  S_hat <- cor_res$S_hat
+  weights <- make_weights(cor_res$SE_S)
+  res <- inspre(
+    S_hat, W = weights, verbose = 1, nlambda = nlambda,
+    lambda_min_ratio = lambda_min_ratio, cv_folds = cv_folds, its = max_iter,
+    rho = 10, symmetrize = TRUE)
+  selected_index <- which(res$D_hat - res$D_hat_se > beta)[1]
   return(list(
     "theta" = res$V[, , selected_index, drop = FALSE],
-    "lambda" = res$lamdba[selected_index]))
+    "lambda" = res$lambda[selected_index]))
 }
 
 methods <- list("glasso_best" = glasso_function,
                 "glasso_stars" = glasso_stars_function,
                 "inspre_best" = inspre_function,
-                "inspre_stars" = inspre_stars_function,
-                "inspre_masked" = inspre_mask_function)
+                "inspre_mask" = inspre_mask_function)
 
+doMC::registerDoMC(cores = 32)
 start_time <- Sys.time()
-plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %do%{
+plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %dopar%{
   print(c(iter, Sys.time() - start_time))
   dataset <- generate_dataset(
     D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing,
@@ -172,17 +192,34 @@ plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %do%{
   condition_number <- max(svs)/min(svs)
   
   foreach(method = names(methods), .combine = bind_rows) %do% {
-    print(method)
     res <- methods[[method]](X)
+    split_name <-  strsplit(method, "_")[[1]]
     
-    metrics <- map_dfr(array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
+    metrics <- map_dfr(
+      array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
     metrics$lambda <- res$lambda
     metrics$method <- method
+    metrics$name <- split_name[1]
+    metrics$type <- split_name[2]
     metrics$iter <- iter
     metrics$condition_number <- condition_number
-    metrics
+    metrics[which.max(metrics$F1), ]
   }
 }
+```
+
+```{r}
+# Plots for above.
+ggplot(plot_tibble, aes(method, F1)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+plot_tibble %>% group_by(method) %>%
+  mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
+         mean_weight_acc = mean(weight_acc)) %>%
+  distinct(method, mean_F1, mean_rmse, mean_weight_acc)
 ```
 
 ```{r}
@@ -190,8 +227,9 @@ plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %do%{
 min_missing = 0.0
 max_missing = 0.8
 
+doMC::registerDoMC(cores = 32)
 start_time <- Sys.time()
-plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %do%{
+plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %dopar%{
   print(c(iter, Sys.time() - start_time))
   dataset <- generate_dataset(
     D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing,
@@ -205,147 +243,32 @@ plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %do%{
   condition_number <- max(svs)/min(svs)
   
   foreach(method = names(methods), .combine = bind_rows) %do% {
-    print(method)
     res <- methods[[method]](X)
+    split_name <-  strsplit(method, "_")[[1]]
     
-    metrics <- map_dfr(array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
+    metrics <- map_dfr(
+      array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
     metrics$lambda <- res$lambda
     metrics$method <- method
+    metrics$name <- split_name[1]
+    metrics$type <- split_name[2]
     metrics$iter <- iter
     metrics$condition_number <- condition_number
-    metrics
-  }
-}
-```
-
-
-```{r}
-D <- 100
-p_net <- 0.1
-sd_net <- 1
-N <- 200
-niter <- 10
-
-plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
-  print(i)
-  dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE)
-  X <- dataset$X
-  sigma <- dataset$sigma
-  theta <- dataset$theta
-  S_hat <- cov(X)
-
-  foreach(method = c("glasso", "ilasso", "inspre", "inspre_cv"), .combine = bind_rows) %do% {
-    theta_hat <- NULL
-    if(method == "glasso"){
-      lambda_max <- max(abs(S_hat[!diag(D)]))
-      lambda_min <- 1e-2 * lambda_max
-      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 10))
-      res <- glasso::glassopath(S_hat, penalize.diagonal = FALSE, trace = 0, rholist = lambda_seq)
-      theta_hat <- res$wi
-      lambda <- res$rholist
-    } else if(method == "inspre"){
-      res <- inspre(S_hat, detpen = 0.05, verbose = 0, delta_target = 1e-4,
-                    rho_min = 1, its = 100, symmetrize = TRUE, nlambda = 10)
-      theta_hat <- res$V
-      lambda <- res$lambda
-    } else if (method == "inspre_cv") {
-      res <- inspre(S_hat, detpen = 0.1, verbose = 1, delta_target = 1e-4,
-                    rho_min = 1, its = 100, symmetrize = TRUE, cv_folds = 10, nlambda = 10)
-      theta_hat <- res$V[,,which.min(res$test_error), drop = FALSE]
-      lambda <- res$lambda[which.min(res$test_error)]
-    } else if(method == "ilasso"){
-      res <- ilasso(S_hat, nlambda = 10)
-      theta_hat <- res$V
-      lambda <- res$lambda
-    }
-    
-    metrics <- map_dfr(array_tree(theta_hat, 3), function(t){calc_metrics(t, theta)})
-    metrics$lambda <- lambda
-    metrics$method <- method
-    metrics$iter <- i
-    metrics
+    metrics[which.max(metrics$F1), ]
   }
 }
 ```
 
 ```{r}
-min_metric <- plot_tibble %>% group_by(iter, method) %>% 
-  mutate(min_rmse = min(rmse), min_mae = min(mae), max_acc = max(acc), max_weight_acc = max(weight_acc)) %>%
-  distinct(iter, method, min_rmse, min_mae, max_acc, max_weight_acc)
-ggplot(min_metric, aes(method, min_rmse)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-ggplot(min_metric, aes(method, min_mae)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-ggplot(min_metric, aes(method, max_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-ggplot(min_metric, aes(method, max_weight_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-
-ggplot(plot_tibble, aes(x=recall, y=precision, color=method)) + geom_point()
-```
-
-
-
-```{r}
-D <- 100
-p_net <- 0.1
-sd_net <- 1
-N <- 1000
-niter <- 10
-min_missing = 0.0
-max_missing = 0.8
-
-plot_tibble <- foreach(i = 1:niter, .combine = bind_rows) %do%{
-  print(i)
-  dataset <- generate_dataset(D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing, max_missing = max_missing)
-  X <- dataset$X
-  sigma <- dataset$sigma
-  theta <- dataset$theta
-  cor_res <- cor_w_se(X)
-  S_hat <- cor_res$S_hat
-  SE_S <- cor_res$SE_S
-  W <- make_weights(SE_S)
-  N_mat <- cor_res$N
-
-  foreach(method = c("glasso", "inspre", "inspre_cv", "ilasso"), .combine = bind_rows) %do% {
-    theta_hat <- NULL
-    if(method == "glasso"){
-      S_hat_g <- 1*S_hat
-      diag(S_hat_g) <- 1
-      lambda_max <- max(abs(S_hat_g[!diag(D)]))
-      lambda_min <- 1e-2 * lambda_max
-      lambda_seq <- exp(seq(log(lambda_max), log(lambda_min), length.out = 10))
-      res <- glasso::glassopath(S_hat_g, penalize.diagonal = FALSE, trace = 1, rholist = lambda_seq)
-      theta_hat <- res$wi
-      lambda <- res$rholist
-    } else if(method == "inspre"){
-      res <- inspre(S_hat, W = W, verbose = 1, delta_target = 1e-4, rho_min = 2.5, detpen=0.15, nlambda = 10)
-      theta_hat <- res$V
-      lambda <- res$lambda
-    } else if (method == "inspre_cv") {
-      res <- inspre(S_hat, W = W, detpen = 0.1, verbose = 1, delta_target = 1e-4,
-                    rho_min = 1, its = 100, symmetrize = TRUE, cv_folds = 10, nlambda = 10)
-      theta_hat <- res$V[,,which.min(res$test_error), drop = FALSE]
-      lambda <- res$lambda[which.min(res$test_error)]
-    } else if(method == "ilasso"){
-      res <- ilasso(S_hat, nlambda = 10)
-      theta_hat <- res$V
-      lambda <- res$lambda
-    }
-    
-    metrics <- map_dfr(array_tree(theta_hat, 3), function(t){calc_metrics(t, theta)})
-    metrics$lambda <- lambda
-    metrics$method <- method
-    metrics$iter <- i
-    metrics
-  }
-}
-```
-
-```{r}
-min_metric <- plot_tibble %>% group_by(iter, method) %>% 
-  mutate(min_rmse = min(rmse), min_mae = min(mae), max_acc = max(acc), max_weight_acc = max(weight_acc)) %>%
-  distinct(iter, method, min_rmse, min_mae, max_acc, max_weight_acc)
-ggplot(min_metric, aes(method, min_rmse)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-ggplot(min_metric, aes(method, min_mae)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-ggplot(min_metric, aes(method, max_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-ggplot(min_metric, aes(method, max_weight_acc)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-
-ggplot(plot_tibble, aes(x=recall, y=precision, color=method)) + geom_point()
+# Plots for above.
+ggplot(plot_tibble, aes(method, F1)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.05)
+plot_tibble %>% group_by(method) %>%
+  mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
+         mean_weight_acc = mean(weight_acc)) %>%
+  distinct(method, mean_F1, mean_rmse, mean_weight_acc)
 ```
