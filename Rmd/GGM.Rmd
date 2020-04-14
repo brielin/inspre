@@ -10,6 +10,8 @@ output: html_document
 require(foreach)
 require(tidyverse)
 require(huge)
+require(doMC)
+require(Rlinsolve)
 library(devtools)
 load_all()
 ```
@@ -20,14 +22,6 @@ nlambda <- 25
 lambda_min_ratio <- 0.1
 cv_folds <- 10
 beta = 0.05
-
-D <- 25
-N <- 100
-p_net <- 0.1
-sd_net <- 1
-min_missing = 0.0
-max_missing = 0.0
-niter <- 100
 
 glasso_function <- function(X){
   res <- huge::huge.glasso(
@@ -42,7 +36,7 @@ glasso_stars_function <- function(X){
 inspre_function <- function(X){
   S_hat <- cor_w_se(X)$S_hat
   res <- inspre(
-    S_hat, verbose = 0, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    S_hat, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
     alpha = 0, symmetrize = TRUE)
   return(list("theta" = res$V, "lambda" = res$lambda))
 }
@@ -50,7 +44,7 @@ inspre_function <- function(X){
 inspre_mask_function <- function(X){
   S_hat <- cor_w_se(X)$S_hat
   res <- inspre(
-    S_hat, verbose = 0, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    S_hat, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
     alpha = 0, cv_folds = cv_folds, symmetrize = TRUE)
   selected_index <- which(res$D_hat - res$D_hat_se > beta)[1]
   return(list(
@@ -58,10 +52,42 @@ inspre_mask_function <- function(X){
     "lambda" = res$lambda[selected_index]))
 }
 
+inspre_cold_function <- function(X){
+  S_hat <- cor_w_se(X)$S_hat
+  res <- inspre(
+    S_hat, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    alpha = 0, symmetrize = TRUE, warm_start = FALSE)
+  return(list("theta" = res$V, "lambda" = res$lambda))
+}
+
+inspre_cold_mask_function <- function(X){
+  S_hat <- cor_w_se(X)$S_hat
+  res <- inspre(
+    S_hat, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    alpha = 0, cv_folds = cv_folds, symmetrize = TRUE, warm_start = FALSE)
+  selected_index <- which(res$D_hat - res$D_hat_se > beta)[1]
+  return(list(
+    "theta" = res$V[, , selected_index, drop = FALSE],
+    "lambda" = res$lambda[selected_index]))
+}
+```
+
+```{r}
+D <- 25
+N <- 100
+p_net <- 0.1
+sd_net <- 1
+min_missing = 0.0
+max_missing = 0.0
+niter <- 100
+
 methods = list("glasso_best" = glasso_function,
                "glasso_stars" = glasso_stars_function,
                "inspre_best" = inspre_function,
                "inspre_mask" = inspre_mask_function)
+               # "inspre_cold" = inspre_cold_function,
+               # "inspre_cold_mask" = inspre_cold_mask_function)
+
 
 doMC::registerDoMC(cores = 32)
 plot_tibble <- foreach(iter = 1:niter,
@@ -121,7 +147,7 @@ lambdas %>% filter(name == "inspre") %>%
 
 
 ```{r}
-# First simulation setup. D = 100, N = 1000.
+# Simulation setup. D = 100, N = 1000.
 D <- 100
 N <- 1000
 p_net <- 0.1
@@ -132,7 +158,7 @@ niter <- 100
 
 nlambda <- 25
 lambda_min_ratio <- 0.1
-cv_folds <- 10
+cv_folds <- 2
 max_iter <- 50
 beta <- 0.05
 
@@ -176,9 +202,14 @@ methods <- list("glasso_best" = glasso_function,
                 "inspre_best" = inspre_function,
                 "inspre_mask" = inspre_mask_function)
 
+```
+
+```{r}
 doMC::registerDoMC(cores = 32)
 start_time <- Sys.time()
-plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %dopar%{
+plot_tibble <- foreach(iter = 1:niter,
+                       .combine = bind_rows,
+                       .inorder = FALSE) %dopar% {
   print(c(iter, Sys.time() - start_time))
   dataset <- generate_dataset(
     D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing,
@@ -194,9 +225,9 @@ plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %dopar%{
   foreach(method = names(methods), .combine = bind_rows) %do% {
     res <- methods[[method]](X)
     split_name <-  strsplit(method, "_")[[1]]
-    
-    metrics <- map_dfr(
+    metrics <- purrr::map_dfr(
       array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
+    print(metrics)
     metrics$lambda <- res$lambda
     metrics$method <- method
     metrics$name <- split_name[1]
@@ -204,6 +235,7 @@ plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %dopar%{
     metrics$iter <- iter
     metrics$condition_number <- condition_number
     metrics[which.max(metrics$F1), ]
+
   }
 }
 ```
@@ -229,7 +261,9 @@ max_missing = 0.8
 
 doMC::registerDoMC(cores = 32)
 start_time <- Sys.time()
-plot_tibble <- foreach(iter = 1:niter, .combine = bind_rows) %dopar%{
+plot_tibble <- foreach(iter = 1:niter,
+                       .combine = bind_rows,
+                       .inorder = FALSE) %dopar% {
   print(c(iter, Sys.time() - start_time))
   dataset <- generate_dataset(
     D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing,

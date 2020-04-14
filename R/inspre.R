@@ -204,7 +204,8 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
                                 its = 100, delta_target = 1e-4,
                                 symmetrize = FALSE, verbose = 1,
                                 gamma = 0.0, train_prop = 1.0,
-                                mu = 5, tau = 2.5, solve_its = 3, ncores = 1) {
+                                mu = 5, tau = 2.5, solve_its = 3, ncores = 1,
+                                warm_start = TRUE) {
   # Break the matrix into training and test sets, equally and at random.
   D <- nrow(X)
   if(is.null(gamma)){
@@ -238,7 +239,7 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
   F_term_path <- vector("numeric", length = length(lambda))
   train_error <- vector("numeric", length = length(lambda))
   test_error <- vector("numeric", length = length(lambda))
-  warm_start = NULL
+  warm_start_res = NULL
   for (i in 1:length(lambda)) {
     lambda_i <- lambda[i]
     if(length(gamma) > 1){
@@ -247,7 +248,7 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
       gamma_i = gamma
     }
     inspre_res <- inspre_worker(
-      X = X, W = train_W, lambda = lambda_i, rho = rho, warm_start = warm_start,
+      X = X, W = train_W, lambda = lambda_i, rho = rho, warm_start = warm_start_res,
       its = its, delta_target = delta_target, symmetrize = symmetrize,
       verbose = (verbose == 2), gamma = gamma_i, mu = mu, tau = tau,
       solve_its = solve_its, ncores = ncores)
@@ -259,7 +260,9 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
                   inspre_res$L, inspre_res$iter, lambda_i, inspre_res$time, inspre_res$L_delta,
                   inspre_res$constraint_resid, inspre_res$dual_resid))
     }
-    warm_start <- inspre_res
+    if(warm_start){
+      warm_start_res <- inspre_res
+    }
     V_all[, , i] <- inspre_res$V
     U_all[, , i] <- inspre_res$U
     rho_used[i] <- inspre_res$rho
@@ -318,7 +321,8 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
                    lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
                    gamma = NULL, its = 100, delta_target = 1e-4,
                    symmetrize = FALSE, verbose = 1, train_prop = 0.8,
-                   cv_folds = 0, mu = 5, tau = 1.5, solve_its = 3, ncores = 1) {
+                   cv_folds = 0, mu = 5, tau = 1.5, solve_its = 3, ncores = 1,
+                   warm_start = TRUE) {
   D <- ncol(X)
 
   if(any(is.na(X))){
@@ -347,7 +351,7 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
         X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
         symmetrize = symmetrize, verbose = verbose, gamma = 0, its = its,
         train_prop = 1.0, mu = mu, tau = tau, solve_its = solve_its,
-        ncores = ncores)$L
+        ncores = ncores, warm_start = warm_start)$L
 
       if(verbose){
         cat("Refitting with gamma = alpha * L / D. \n")
@@ -359,7 +363,7 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
     X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
     symmetrize = symmetrize, verbose = verbose, gamma = gamma, its = its,
     train_prop = 1.0, mu = mu, tau = tau, solve_its = solve_its,
-    ncores = ncores)
+    ncores = ncores, warm_start = warm_start)
 
   if (cv_folds > 0) {
     xi_mat <- array(0, dim = c(D, D, length(lambda)))
@@ -372,7 +376,7 @@ inspre <- function(X, W = NULL, rho = 1.0, lambda = NULL,
         X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
         symmetrize = symmetrize, verbose = verbose, gamma = gamma,
         train_prop = train_prop, its = its, mu = mu, tau = tau,
-        solve_its = solve_its, ncores = ncores)
+        solve_its = solve_its, ncores = ncores, warm_start = warm_start)
       error_matrix[i, ] = cv_res$test_error
       V_nz <- abs(cv_res$V) > 1e-8
       xi_mat <- xi_mat + V_nz
