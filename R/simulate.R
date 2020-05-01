@@ -11,7 +11,7 @@ calc_metrics <- function(X, X_true, eps = 1e-10) {
   X_true[abs(X_true) < eps] <- 0
 
   rmse <- sqrt(mean((X - X_true)^2))
-  mae <- stats::median(abs(X - X_true))
+  mae <- mean(abs(X - X_true))
 
   sign_X <- sign(X)
   sign_Xt <- sign(X_true)
