@@ -45,8 +45,7 @@ calc_metrics <- function(X, X_true, eps = 1e-10) {
 #'   D x D x nlambda matrix and "lambda" a list of lambda values used.
 #' @param train_prop Float, proportion of rows of X to use at each iteration.
 #' @param cv_folds Integer, number of cross-validation folds.
-#' @param beta Cutoff for determining which value of lambda to choose.
-stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10, beta = 0.1){
+stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10){
   N = dim(X)[1]
   D = dim(X)[2]
   method_res <- method(X)
@@ -65,52 +64,10 @@ stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10, beta = 0.1){
   xi_mat <- xi_mat/cv_folds
   xi_mat <- 2 * xi_mat * (1-xi_mat)
   D_hat <- apply(xi_mat, 3, mean)
-  D_hat_se <- apply(
-    xi_mat, 3, function(x){ stats::sd(x)/sqrt(length(x)) })
-  selected_index <- which(D_hat - D_hat_se > beta)[1]
   return(list(
-    "theta" = theta_hat[, , selected_index, drop = FALSE],
-    "lambda" = lambda[selected_index]))
-}
-
-#' Generates correlation/precision matrices for gaussian graphical model.
-#'
-#' @param D Integer. Dimensionality.
-#' @param N Integer. Number of samples to simulate.
-#' @param p_net Float. Connection density.
-#' @param sd_net Float. Standard deviation of initial covariance.
-#' @param normalize Bool. True to return data and parameters with mean 0,
-#'   var 1.
-#' @param min_missing Float. Minimum missing percentage. For each dimension
-#'   a value will be drawn uniformly between this and max_missing to determine
-#'   the probability an observation will be removed in that feature.
-#' @param max_missing Float. Maximum missing percentage. See min_missing.
-generate_dataset <- function(D, N, p_net, sd_net = 1.0, normalize = TRUE,
-                             min_missing = 0.0, max_missing = 0.0) {
-  B <- matrix(stats::rnorm(D * D, sd = sd_net), nrow = D)
-  theta <- 0.5 * (B + t(B))
-  zeros <- stats::runif(D * (D - 1) / 2) > p_net
-  theta[lower.tri(theta)][zeros] <- 0
-  theta <- t(theta)
-  theta[lower.tri(theta)][zeros] <- 0
-  min_ev <- eigen(theta, only.values = TRUE)$values[D]
-  theta <- theta + (1 - min_ev) * diag(D)
-  sigma <- solve(theta)
-
-  X <- mvtnorm::rmvnorm(N, sigma = sigma)
-  if (max_missing > 0) {
-    missing <- stats::runif(D, min = min_missing, max = max_missing)
-    drop <- t(matrix(stats::runif(N * D) < missing, nrow = D))
-    X[drop] <- NA
-  }
-
-  if (normalize) {
-    sigma <- stats::cov2cor(sigma)
-    theta <- solve(sigma)
-    X <- scale(X)
-  }
-
-  return(list("X" = X, "sigma" = sigma, "theta" = theta))
+    "theta" = theta_hat,
+    "lambda" = lambda,
+    "D_hat" = D_hat))
 }
 
 #' Estimates correlation matrix of X in the presence of missing data.
@@ -129,3 +86,58 @@ cor_w_se <- function(X) {
   SE_S <- sqrt((1 - S_hat**2) / (N - 2))
   return(list("S_hat" = S_hat, "SE_S" = SE_S, "N" = N))
 }
+
+
+#' Generates correlation/precision matrices for a neighborhood GGM.
+#'
+#' @param D Integer. Dimensionality.
+#' @param N Integer. Number of samples.
+#' @param rho Float. Value of non-zero correlation.
+# generate_neighborood <- function(D, N, rho){
+#   Y = matrix(stats::runif(2*D), ncol=2)
+#   p = exp(-4*dist(Y)**2)/sqrt(2*pi)
+#   edges = rbinom(length(p), size = 1, prob = p)
+#   theta <- matrix(0L, nrow = D, ncol =  D)
+#   theta[lower.tri(theta)] = edges
+#   theta <- theta + t(theta)
+# }
+
+#' Generates correlation/precision matrices for gaussian graphical model.
+#'
+#' @param D Integer. Dimensionality.
+#' @param N Integer. Number of samples to simulate.
+#' @param p_net Float. Connection density.
+#' @param sd_net Float. Standard deviation of initial covariance.
+#' @param normalize Bool. True to return data and parameters with mean 0,
+#'   var 1.
+#' @param min_missing Float. Minimum missing percentage. For each dimension
+#'   a value will be drawn uniformly between this and max_missing to determine
+#'   the probability an observation will be removed in that feature.
+#' @param max_missing Float. Maximum missing percentage. See min_missing.
+# generate_dataset <- function(D, N, p_net, sd_net = 1.0, normalize = TRUE,
+#                              min_missing = 0.0, max_missing = 0.0) {
+#   B <- matrix(stats::rnorm(D * D, sd = sd_net), nrow = D)
+#   theta <- 0.5 * (B + t(B))
+#   zeros <- stats::runif(D * (D - 1) / 2) > p_net
+#   theta[lower.tri(theta)][zeros] <- 0
+#   theta <- t(theta)
+#   theta[lower.tri(theta)][zeros] <- 0
+#   min_ev <- eigen(theta, only.values = TRUE)$values[D]
+#   theta <- theta + (1 - min_ev) * diag(D)
+#   sigma <- solve(theta)
+#
+#   X <- mvtnorm::rmvnorm(N, sigma = sigma)
+#   if (max_missing > 0) {
+#     missing <- stats::runif(D, min = min_missing, max = max_missing)
+#     drop <- t(matrix(stats::runif(N * D) < missing, nrow = D))
+#     X[drop] <- NA
+#   }
+#
+#   if (normalize) {
+#     sigma <- stats::cov2cor(sigma)
+#     theta <- solve(sigma)
+#     X <- scale(X)
+#   }
+#
+#   return(list("X" = X, "sigma" = sigma, "theta" = theta))
+# }
