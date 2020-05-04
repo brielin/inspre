@@ -48,7 +48,8 @@ calc_metrics <- function(X, X_true, eps = 1e-10) {
 stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10){
   N = dim(X)[1]
   D = dim(X)[2]
-  method_res <- method(X)
+  S_full <- cor_w_se(X)$S_hat
+  method_res <- method(S_full)
   theta_hat <- method_res$theta
   lambda <- method_res$lambda
   xi_mat <- array(0, dim = c(D, D, length(lambda)))
@@ -56,8 +57,7 @@ stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10){
     train <- stats::runif(N) < train_prop
     X_train = X[train, ]
     S_train <- cor_w_se(X_train)$S_hat
-    theta_cv <- method(X_train)$theta
-
+    theta_cv <- method(S_train)$theta
     theta_nz <- abs(theta_cv) > 1e-8
     xi_mat <- xi_mat + theta_nz
   }

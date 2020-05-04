@@ -16,14 +16,15 @@ library(devtools)
 load_all()
 ```
 
+
 ```{r}
 nlambda <- 25
 lambda_min_ratio <- 0.1
 cv_folds <- 10
 
-glasso_function <- function(X){
+glasso_function <- function(S){
   res <- huge.glasso(
-    X, nlambda = nlambda, lambda.min.ratio = lambda_min_ratio, verbose = FALSE)
+    S, nlambda = nlambda, lambda.min.ratio = lambda_min_ratio, verbose = FALSE)
   return(list("theta" = simplify2array(res$icov), "lambda" = res$lambda))
 }
 
@@ -31,10 +32,9 @@ glasso_stars_function <- function(X){
   return(stars_cv(X, glasso_function, cv_folds = cv_folds))
 }
 
-inspre_mask_function <- function(X){
-  S_hat <- cor_w_se(X)$S_hat
+inspre_mask_function <- function(S){
   res <- inspre(
-    S_hat, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    S, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
     alpha = 0, cv_folds = cv_folds, symmetrize = TRUE, warm_start = FALSE)
   return(list(
     "theta" = res$V,
@@ -56,9 +56,10 @@ run_methods <- function(iter, N, D, graph, prob, g, v, methods, min_missing, max
   S_hat <- cor_res$S_hat
   svs <- svd(S_hat)$d
   condition_number <- max(svs)/min(svs)
-  
+  result=NULL
+  # for(method in names(methods)){
   result <- foreach(method = names(methods), .combine = bind_rows) %do% {
-    res <- methods[[method]](X)
+    res <- methods[[method]](S_hat)
     
     metrics <- map_dfr(
       array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
@@ -77,15 +78,15 @@ run_methods <- function(iter, N, D, graph, prob, g, v, methods, min_missing, max
 ```{r}
 # First sim: ER graphs, large-ish N, small-ish D.
 graph = "random"
-D <- 50
-N <- 1000
+D <- 40
+N <- 800
 prob <- 0.05
 v <- 0.3
 g <- NULL
 min_missing = 0.0
 max_missing = 0.0
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -97,32 +98,9 @@ plot_tibble_1 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_1, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_1.Rdata")
+save(plot_tibble_1, file = "~/ukbb_network/plot_data/inspre_sim_1.Rdata")
 ```
 
-```{r}
-# Plots for above.
-# ggplot(plot_tibble, aes(method, F1)) + 
-#   geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# plot_tibble %>% group_by(method) %>%
-#   mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
-#          mean_weight_acc = mean(weight_acc)) %>%
-#   distinct(method, mean_F1, mean_rmse, mean_weight_acc)
-# 
-# lambdas <- plot_tibble %>% select(iter, name, type, lambda) %>%
-#   pivot_wider(names_from = type, values_from = lambda)
-# lambdas %>% filter(name == "glasso") %>% 
-#   ggplot(aes(best, stars, color = name)) + geom_point() + 
-#   geom_smooth(method = lm)
-# lambdas %>% filter(name == "inspre") %>% 
-#   ggplot(aes(best, mask, color = name)) + geom_point() + 
-#   geom_smooth(method = lm)
-```
 
 ```{r}
 # Second sim: ER graphs, smallish-ish N, largish-ish D.
@@ -135,7 +113,7 @@ g <- NULL
 min_missing = 0.0
 max_missing = 0.0
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -147,8 +125,9 @@ plot_tibble_2 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_2, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_2.Rdata")
+save(plot_tibble_2, file = "~/ukbb_network/plot_data/inspre_sim_2.Rdata")
 ```
+
 
 ```{r}
 # Third sim: ER graphs, large N large D but random missingness
@@ -161,7 +140,7 @@ g <- NULL
 min_missing = 0.0
 max_missing = 0.8
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -171,24 +150,25 @@ doMC::registerDoMC(cores = n_cores)
 plot_tibble_3 <- foreach(iter = 1:niter,
                        .combine = bind_rows,
                        .inorder = FALSE) %dopar%{
+# for(iter in 1:niter){
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_3, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_2.Rdata")
+save(plot_tibble_3, file = "~/ukbb_network/plot_data/inspre_sim_3.Rdata")
 ```
 
 
 ```{r}
 # Fourth sim: hub graphs, large-ish N, small-ish D.
 graph = "hub"
-D <- 50
-N <- 1000
+D <- 40
+N <- 800
 prob <- NULL
 v <- 0.3
 g <- 3
 min_missing = 0.0
 max_missing = 0.0
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -200,32 +180,9 @@ plot_tibble_4 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_4, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_1.Rdata")
+save(plot_tibble_4, file = "~/ukbb_network/plot_data/inspre_sim_4.Rdata")
 ```
 
-```{r}
-# Plots for above.
-# ggplot(plot_tibble, aes(method, F1)) + 
-#   geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# plot_tibble %>% group_by(method) %>%
-#   mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
-#          mean_weight_acc = mean(weight_acc)) %>%
-#   distinct(method, mean_F1, mean_rmse, mean_weight_acc)
-# 
-# lambdas <- plot_tibble %>% select(iter, name, type, lambda) %>%
-#   pivot_wider(names_from = type, values_from = lambda)
-# lambdas %>% filter(name == "glasso") %>% 
-#   ggplot(aes(best, stars, color = name)) + geom_point() + 
-#   geom_smooth(method = lm)
-# lambdas %>% filter(name == "inspre") %>% 
-#   ggplot(aes(best, mask, color = name)) + geom_point() + 
-#   geom_smooth(method = lm)
-```
 
 ```{r}
 # Fifth sim: Hub graphs, smallish-ish N, largish-ish D.
@@ -238,7 +195,7 @@ g <- 5
 min_missing = 0.0
 max_missing = 0.0
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -250,8 +207,9 @@ plot_tibble_5 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_5, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_2.Rdata")
+save(plot_tibble_5, file = "~/ukbb_network/plot_data/inspre_sim_5.Rdata")
 ```
+
 
 ```{r}
 # Sixth sim: Hub graphs, large N large D but random missingness
@@ -264,7 +222,7 @@ g <- 5
 min_missing = 0.0
 max_missing = 0.8
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -276,21 +234,22 @@ plot_tibble_6 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_6, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_2.Rdata")
+save(plot_tibble_6, file = "~/ukbb_network/plot_data/inspre_sim_6.Rdata")
 ```
+
 
 ```{r}
 # Seventh sim: scale-free graphs, large-ish N, small-ish D.
 graph = "scale-free"
-D <- 50
-N <- 1000
+D <- 40
+N <- 800
 prob <- NULL
 v <- 0.3
 g <- NULL
 min_missing = 0.0
 max_missing = 0.0
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -302,32 +261,9 @@ plot_tibble_7 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_7, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_1.Rdata")
+save(plot_tibble_7, file = "~/ukbb_network/plot_data/inspre_sim_7.Rdata")
 ```
 
-```{r}
-# Plots for above.
-# ggplot(plot_tibble, aes(method, F1)) + 
-#   geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# plot_tibble %>% group_by(method) %>%
-#   mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
-#          mean_weight_acc = mean(weight_acc)) %>%
-#   distinct(method, mean_F1, mean_rmse, mean_weight_acc)
-# 
-# lambdas <- plot_tibble %>% select(iter, name, type, lambda) %>%
-#   pivot_wider(names_from = type, values_from = lambda)
-# lambdas %>% filter(name == "glasso") %>% 
-#   ggplot(aes(best, stars, color = name)) + geom_point() + 
-#   geom_smooth(method = lm)
-# lambdas %>% filter(name == "inspre") %>% 
-#   ggplot(aes(best, mask, color = name)) + geom_point() + 
-#   geom_smooth(method = lm)
-```
 
 ```{r}
 # Eigth sim: scale-free graphs, smallish-ish N, largish-ish D.
@@ -340,7 +276,7 @@ g <- NULL
 min_missing = 0.0
 max_missing = 0.0
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -352,8 +288,9 @@ plot_tibble_8 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_8, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_2.Rdata")
+save(plot_tibble_8, file = "~/ukbb_network/plot_data/inspre_sim_8.Rdata")
 ```
+
 
 ```{r}
 # Ninth sim: scale-free graphs, large N large D but random missingness
@@ -366,7 +303,7 @@ g <- 5
 min_missing = 0.0
 max_missing = 0.8
 niter <- 120
-n_cores = 8
+n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
                "inspre" = inspre_mask_function)
@@ -378,7 +315,7 @@ plot_tibble_9 <- foreach(iter = 1:niter,
                        .inorder = FALSE) %dopar%{
   return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
 }
-save(plot_tibble_9, file = "/home/brielin/Work/inspre/plot_data/inspre_sim_2.Rdata")
+save(plot_tibble_9, file = "~/ukbb_network/plot_data/inspre_sim_9.Rdata")
 ```
 
 
