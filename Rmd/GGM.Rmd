@@ -11,7 +11,7 @@ require(foreach)
 require(tidyverse)
 require(huge)
 require(doMC)
-require(Rlinsolve)
+require(egg)
 library(devtools)
 load_all()
 ```
@@ -319,7 +319,119 @@ save(plot_tibble_9, file = "~/ukbb_network/plot_data/inspre_sim_9.Rdata")
 ```
 
 
+```{r}
+load("~/ukbb_network/plot_data/inspre_sim_1.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_2.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_3.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_4.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_5.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_6.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_7.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_8.Rdata")
+load("~/ukbb_network/plot_data/inspre_sim_9.Rdata")
+```
 
+
+```{r, fig.width = 10}
+beta = 0.05
+
+s1a <- plot_tibble_1 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "A) ER graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1b <- plot_tibble_2 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "B) ER graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1c <- plot_tibble_3 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "C) ER graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1d <- plot_tibble_4 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "D) Hub graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1e <- plot_tibble_5 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "E) Hub graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1f <- plot_tibble_6 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "F) Hub graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1g <- plot_tibble_7 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "G) Scale-free graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1h <- plot_tibble_8 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "H) Scale-free graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+s1i <- plot_tibble_9 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
+  labs(x = NULL, y = NULL, title = "I) Scale-free graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+
+ggarrange(s1a, s1b, s1c, s1d, s1e, s1f, s1g, s1h, s1i, ncol = 3, left = "F1 score")
+```
+
+
+```{r, fig.width = 10}
+s2a <- plot_tibble_1 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title = "A) ER graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+s2b <- plot_tibble_2 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "B) ER graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+s2c <- plot_tibble_3 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "C) ER graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+s2d <- plot_tibble_4 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title = "D) Hub graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+s2e <- plot_tibble_5 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "E) Hub graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+s2f <- plot_tibble_6 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "F) Hub graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + labs(color = "Method")
+
+s2g <- plot_tibble_7 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title = "G) Scale-free graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+s2h <- plot_tibble_8 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "H) Scale-free graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+s2i <- plot_tibble_9 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "I) Scale-free graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+
+ggarrange(s2a, s2b, s2c, s2d, s2e, s2f, s2g, s2h, s2i, ncol = 3, left = "F1 score", bottom = "D_hat")
+```
 
 # ```{r}
 # # Simulation setup. D = 100, N = 1000.
