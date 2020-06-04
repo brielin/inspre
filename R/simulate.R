@@ -56,7 +56,8 @@ stars_cv <- function(X, method, train_prop = 0.8, cv_folds = 10){
   for (fold in 1:cv_folds){
     train <- stats::runif(N) < train_prop
     X_train = X[train, ]
-    S_train <- cor_w_se(X_train)$S_hat
+    cor_res <- cor_w_se(X_train)
+    S_train <- cor_res$S_hat
     theta_cv <- method(S_train)$theta
     theta_nz <- abs(theta_cv) > 1e-8
     xi_mat <- xi_mat + theta_nz

@@ -1,11 +1,3 @@
----
-title: "Gaussian Graphical Models Simulation"
-author: "Brielin C Brown"
-date: "1/28/2020"
-output: html_document
----
-
-## Gaussian Graphical Models
 ```{r}
 require(foreach)
 require(tidyverse)
@@ -23,18 +15,25 @@ lambda_min_ratio <- 0.1
 cv_folds <- 10
 
 glasso_function <- function(S){
-  res <- huge.glasso(
-    S, nlambda = nlambda, lambda.min.ratio = lambda_min_ratio, verbose = FALSE)
-  return(list("theta" = simplify2array(res$icov), "lambda" = res$lambda))
+  if(sum(is.na(S))){
+    return(list("theta" = array(NA, dim = c(nrow(S),ncol(S),nlambda)), "lambda" = rep(NA, nlambda)))
+  } else {
+    res <- huge.glasso(
+      S, nlambda = nlambda, lambda.min.ratio = lambda_min_ratio, verbose = FALSE)
+    return(list("theta" = simplify2array(res$icov), "lambda" = res$lambda)) 
+  }
 }
 
 glasso_stars_function <- function(X){
   return(stars_cv(X, glasso_function, cv_folds = cv_folds))
 }
 
-inspre_mask_function <- function(S){
+inspre_mask_function <- function(X){
+  cor_res <- cor_w_se(X)
+  S_hat <- cor_res$S_hat
+  W <- make_weights(cor_res$SE_S)
   res <- inspre(
-    S, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
+    S_hat, W, verbose = 1, nlambda = nlambda, lambda_min_ratio = lambda_min_ratio,
     alpha = 0, cv_folds = cv_folds, symmetrize = TRUE, warm_start = FALSE)
   return(list(
     "theta" = res$V,
@@ -52,22 +51,17 @@ run_methods <- function(iter, N, D, graph, prob, g, v, methods, min_missing, max
   }
   sigma <- dataset$sigma
   theta <- dataset$omega
-  cor_res <- cor_w_se(X)
-  S_hat <- cor_res$S_hat
-  svs <- svd(S_hat)$d
-  condition_number <- max(svs)/min(svs)
   result=NULL
-  # for(method in names(methods)){
   result <- foreach(method = names(methods), .combine = bind_rows) %do% {
-    res <- methods[[method]](S_hat)
-    
+    res <- methods[[method]](X)
     metrics <- map_dfr(
       array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
     metrics$lambda <- res$lambda
     metrics$D_hat <- res$D_hat
     metrics$method <- method
     metrics$iter <- iter
-    metrics$condition_number <- condition_number
+    metrics$max_missing <- max_missing
+    metrics$missingness <- mean(is.na(X))
     return(metrics)
   }
   return(result)
@@ -93,10 +87,8 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_1 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_1 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_1, file = "~/ukbb_network/plot_data/inspre_sim_1.Rdata")
 ```
@@ -120,10 +112,8 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_2 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_2 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_2, file = "~/ukbb_network/plot_data/inspre_sim_2.Rdata")
 ```
@@ -133,13 +123,12 @@ save(plot_tibble_2, file = "~/ukbb_network/plot_data/inspre_sim_2.Rdata")
 # Third sim: ER graphs, large N large D but random missingness
 graph = "random"
 D <- 100
-N <- 1000
+N <- 2000
 prob <- 0.02
 v <- 0.3
 g <- NULL
 min_missing = 0.0
-max_missing = 0.8
-niter <- 120
+niter <- 240
 n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
@@ -147,11 +136,9 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_3 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-# for(iter in 1:niter){
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_3 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  max_missing = runif(1, 0.5, 0.99)
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_3, file = "~/ukbb_network/plot_data/inspre_sim_3.Rdata")
 ```
@@ -175,10 +162,8 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_4 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_4 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_4, file = "~/ukbb_network/plot_data/inspre_sim_4.Rdata")
 ```
@@ -202,10 +187,8 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_5 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_5 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_5, file = "~/ukbb_network/plot_data/inspre_sim_5.Rdata")
 ```
@@ -215,13 +198,12 @@ save(plot_tibble_5, file = "~/ukbb_network/plot_data/inspre_sim_5.Rdata")
 # Sixth sim: Hub graphs, large N large D but random missingness
 graph = "hub"
 D <- 100
-N <- 1000
+N <- 2000
 prob <- NULL
 v <- 0.3
 g <- 5
 min_missing = 0.0
-max_missing = 0.8
-niter <- 120
+niter <- 240
 n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
@@ -229,10 +211,9 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_6 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_6 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  max_missing = runif(1, 0.5, 0.99)
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_6, file = "~/ukbb_network/plot_data/inspre_sim_6.Rdata")
 ```
@@ -256,10 +237,8 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_7 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_7 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_7, file = "~/ukbb_network/plot_data/inspre_sim_7.Rdata")
 ```
@@ -278,15 +257,13 @@ max_missing = 0.0
 niter <- 120
 n_cores = 24
 
-methods = list("glasso" = glasso_stars_function,
+methods = list("glasso" = glasso_stars_function, 
                "inspre" = inspre_mask_function)
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_8 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_8 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_8, file = "~/ukbb_network/plot_data/inspre_sim_8.Rdata")
 ```
@@ -296,13 +273,12 @@ save(plot_tibble_8, file = "~/ukbb_network/plot_data/inspre_sim_8.Rdata")
 # Ninth sim: scale-free graphs, large N large D but random missingness
 graph = "scale-free"
 D <- 100
-N <- 1000
+N <- 2000
 prob <- NULL
 v <- 0.3
 g <- 5
 min_missing = 0.0
-max_missing = 0.8
-niter <- 120
+niter <- 240
 n_cores = 24
 
 methods = list("glasso" = glasso_stars_function,
@@ -310,10 +286,9 @@ methods = list("glasso" = glasso_stars_function,
 
 
 doMC::registerDoMC(cores = n_cores)
-plot_tibble_9 <- foreach(iter = 1:niter,
-                       .combine = bind_rows,
-                       .inorder = FALSE) %dopar%{
-  return(run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing))
+plot_tibble_9 <- foreach(iter = 1:niter, .combine = bind_rows, .inorder = FALSE) %dopar%{
+  max_missing = runif(1, 0.5, 0.99)
+  run_methods(iter, N, D, graph, prob, g, v, methods, min_missing, max_missing)
 }
 save(plot_tibble_9, file = "~/ukbb_network/plot_data/inspre_sim_9.Rdata")
 ```
@@ -333,263 +308,58 @@ load("~/ukbb_network/plot_data/inspre_sim_9.Rdata")
 
 
 ```{r, fig.width = 10}
-beta = 0.05
+s1a <- plot_tibble_1 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title = "a) ER graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s1a <- plot_tibble_1 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "A) ER graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10))
 
-s1b <- plot_tibble_2 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "B) ER graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+s1b <- plot_tibble_4 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title = "b) Hub graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s1c <- plot_tibble_3 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "C) ER graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+s1c <- plot_tibble_7 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title = "c) Scale-free graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(fill=guide_legend(title="Method"))
 
-s1d <- plot_tibble_4 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "D) Hub graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+s1d <- plot_tibble_2 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "d) ER graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s1e <- plot_tibble_5 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "E) Hub graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10))
 
-s1f <- plot_tibble_6 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "F) Hub graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+s1e <- plot_tibble_5 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "e) Hub graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s1g <- plot_tibble_7 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "G) Scale-free graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10))
+s1f <- plot_tibble_8 %>%
+  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
+  labs(x = NULL, y = NULL, title =  "f) Scale-free graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s1h <- plot_tibble_8 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "H) Scale-free graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10))
 
-s1i <- plot_tibble_9 %>% group_by(iter, method) %>%
-  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
-  filter(delta_D == min(delta_D)) %>%
-  ggplot(aes(method, F1)) + geom_violin() + geom_jitter(height = 0, width = 0.1, alpha = 0.05) +
-  labs(x = NULL, y = NULL, title = "I) Scale-free graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10))
-
-ggarrange(s1a, s1b, s1c, s1d, s1e, s1f, s1g, s1h, s1i, ncol = 3, left = "F1 score")
+ggarrange(s1a, s1b, s1c, s1d, s1e, s1f, ncol = 3, left = "F1 score", bottom = "Graph stability score")
 ```
 
+```{r, fig.width = 10, fig.height=3}
+beta = 0.025
 
-```{r, fig.width = 10}
-s2a <- plot_tibble_1 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title = "A) ER graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+s1a <- plot_tibble_3 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(max_missing, F1, color = method)) + geom_point() +
+  labs(x = NULL, y = NULL, title = "a) ER graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s2b <- plot_tibble_2 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title =  "B) ER graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s2c <- plot_tibble_3 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title =  "C) ER graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+s1b <- plot_tibble_6 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(max_missing, F1, color = method)) + geom_point() +
+  labs(x = NULL, y = NULL, title = "b) Hub graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s2d <- plot_tibble_4 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title = "D) Hub graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
 
-s2e <- plot_tibble_5 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title =  "E) Hub graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
+s1c <- plot_tibble_9 %>% group_by(iter, method) %>%
+  mutate(delta_D = if_else(beta - D_hat > 0, beta - D_hat, Inf)) %>%
+  filter(delta_D == min(delta_D)) %>%
+  ggplot(aes(max_missing, F1, color = method)) + geom_point() +
+  labs(x = NULL, y = NULL, title = "c) Scale-free graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + xlim(0.5, 1)
 
-s2f <- plot_tibble_6 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title =  "F) Hub graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + labs(color = "Method")
-
-s2g <- plot_tibble_7 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title = "G) Scale-free graph, D = 40, N = 800") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
-
-s2h <- plot_tibble_8 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title =  "H) Scale-free graph, D = 100, N = 1000") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
-
-s2i <- plot_tibble_9 %>%
-  ggplot(aes(D_hat, F1, color = method)) + geom_point(alpha = 0.5) +
-  labs(x = NULL, y = NULL, title =  "I) Scale-free graph, D = 100, variable N") + ylim(0, 1) + theme(plot.title = element_text(size=10)) + guides(color = FALSE)
-
-ggarrange(s2a, s2b, s2c, s2d, s2e, s2f, s2g, s2h, s2i, ncol = 3, left = "F1 score", bottom = "D_hat")
+ggarrange(s1a, s1b, s1c, ncol = 3, left = "F1 score", bottom = "Maximum feature missingness")
 ```
-
-# ```{r}
-# # Simulation setup. D = 100, N = 1000.
-# D <- 100
-# N <- 1000
-# p_net <- 0.1
-# sd_net <- 1
-# min_missing = 0.0
-# max_missing = 0.0
-# niter <- 100
-# 
-# nlambda <- 25
-# lambda_min_ratio <- 0.1
-# cv_folds <- 2
-# max_iter <- 50
-# beta <- 0.05
-# 
-# glasso_function <- function(X){
-#   res <- huge::huge.glasso(
-#     X, nlambda = nlambda, lambda.min.ratio = lambda_min_ratio, verbose = FALSE)
-#   return(list("theta" = simplify2array(res$icov), "lambda" = res$lambda))
-# }
-# 
-# glasso_stars_function <- function(X){
-#   return(stars_cv(X, glasso_function, cv_folds = cv_folds, beta = beta))
-# }
-# 
-# inspre_function <- function(X){
-#   cor_res <- cor_w_se(X)
-#   S_hat <- cor_res$S_hat
-#   weights <- make_weights(cor_res$SE_S)
-#   res <- inspre(
-#     S_hat, W = weights, verbose = 1, nlambda = nlambda,
-#     lambda_min_ratio = lambda_min_ratio, its = max_iter, rho = 10,
-#     symmetrize = TRUE)
-#   return(list("theta" = res$V, "lambda" = res$lambda))
-# }
-# 
-# inspre_mask_function <- function(X){
-#   cor_res <- cor_w_se(X)
-#   S_hat <- cor_res$S_hat
-#   weights <- make_weights(cor_res$SE_S)
-#   res <- inspre(
-#     S_hat, W = weights, verbose = 1, nlambda = nlambda,
-#     lambda_min_ratio = lambda_min_ratio, cv_folds = cv_folds, its = max_iter,
-#     rho = 10, symmetrize = TRUE)
-#   selected_index <- which(res$D_hat - res$D_hat_se > beta)[1]
-#   return(list(
-#     "theta" = res$V[, , selected_index, drop = FALSE],
-#     "lambda" = res$lambda[selected_index]))
-# }
-# 
-# methods <- list("glasso_best" = glasso_function,
-#                 "glasso_stars" = glasso_stars_function,
-#                 "inspre_best" = inspre_function,
-#                 "inspre_mask" = inspre_mask_function)
-# 
-# ```
-# 
-# ```{r}
-# doMC::registerDoMC(cores = 32)
-# start_time <- Sys.time()
-# plot_tibble <- foreach(iter = 1:niter,
-#                        .combine = bind_rows,
-#                        .inorder = FALSE) %dopar% {
-#   print(c(iter, Sys.time() - start_time))
-#   dataset <- generate_dataset(
-#     D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing,
-#     max_missing = max_missing)
-#   X <- dataset$X
-#   sigma <- dataset$sigma
-#   theta <- dataset$theta
-#   cor_res <- cor_w_se(X)
-#   S_hat <- cor_res$S_hat
-#   svs <- svd(S_hat)$d
-#   condition_number <- max(svs)/min(svs)
-#   
-#   foreach(method = names(methods), .combine = bind_rows) %do% {
-#     res <- methods[[method]](X)
-#     split_name <-  strsplit(method, "_")[[1]]
-#     metrics <- purrr::map_dfr(
-#       array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
-#     print(metrics)
-#     metrics$lambda <- res$lambda
-#     metrics$method <- method
-#     metrics$name <- split_name[1]
-#     metrics$type <- split_name[2]
-#     metrics$iter <- iter
-#     metrics$condition_number <- condition_number
-#     metrics[which.max(metrics$F1), ]
-# 
-#   }
-# }
-# ```
-# 
-# ```{r}
-# # Plots for above.
-# ggplot(plot_tibble, aes(method, F1)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# plot_tibble %>% group_by(method) %>%
-#   mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
-#          mean_weight_acc = mean(weight_acc)) %>%
-#   distinct(method, mean_F1, mean_rmse, mean_weight_acc)
-# ```
-# 
-# ```{r}
-# # Now with missingness/different sample sizes.
-# min_missing = 0.0
-# max_missing = 0.8
-# 
-# doMC::registerDoMC(cores = 32)
-# start_time <- Sys.time()
-# plot_tibble <- foreach(iter = 1:niter,
-#                        .combine = bind_rows,
-#                        .inorder = FALSE) %dopar% {
-#   print(c(iter, Sys.time() - start_time))
-#   dataset <- generate_dataset(
-#     D, N, p_net, sd_net, normalize = TRUE, min_missing = min_missing,
-#     max_missing = max_missing)
-#   X <- dataset$X
-#   sigma <- dataset$sigma
-#   theta <- dataset$theta
-#   cor_res <- cor_w_se(X)
-#   S_hat <- cor_res$S_hat
-#   svs <- svd(S_hat)$d
-#   condition_number <- max(svs)/min(svs)
-#   
-#   foreach(method = names(methods), .combine = bind_rows) %do% {
-#     res <- methods[[method]](X)
-#     split_name <-  strsplit(method, "_")[[1]]
-#     
-#     metrics <- map_dfr(
-#       array_tree(res$theta, 3), function(t){calc_metrics(t, theta)})
-#     metrics$lambda <- res$lambda
-#     metrics$method <- method
-#     metrics$name <- split_name[1]
-#     metrics$type <- split_name[2]
-#     metrics$iter <- iter
-#     metrics$condition_number <- condition_number
-#     metrics[which.max(metrics$F1), ]
-#   }
-# }
-# ```
-# 
-# ```{r}
-# # Plots for above.
-# ggplot(plot_tibble, aes(method, F1)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, rmse)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# ggplot(plot_tibble, aes(method, weight_acc)) + geom_violin() + 
-#   geom_jitter(height = 0, width = 0.1, alpha = 0.05)
-# plot_tibble %>% group_by(method) %>%
-#   mutate(mean_F1 = mean(F1), mean_rmse = mean(rmse),
-#          mean_weight_acc = mean(weight_acc)) %>%
-#   distinct(method, mean_F1, mean_rmse, mean_weight_acc)
-# ```
