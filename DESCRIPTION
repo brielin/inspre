@@ -10,7 +10,8 @@ LazyData: true
 Suggests:
     huge,
     testthat,
-    egg
+    egg,
+    devtools
 RoxygenNote: 7.1.0
 LinkingTo: 
     Rcpp,
