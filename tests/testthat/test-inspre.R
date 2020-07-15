@@ -1,8 +1,7 @@
 D <- 3
 N <- 10
-p_net <- 1
-dataset <- generate_dataset(D, N, p_net)
-res <- cor_w_se(dataset$X)
+dataset <- huge::huge.generator(n = N, d = D, verbose = FALSE)
+res <- cor_w_se(dataset$data)
 
 test_that("make_weights_works", {
   weights <- make_weights(res$SE_S)

@@ -7,7 +7,7 @@
 inspre(
   X,
   W = NULL,
-  rho = 1,
+  rho = 10,
   lambda = NULL,
   lambda_min_ratio = 0.01,
   nlambda = 20,
@@ -19,10 +19,11 @@ inspre(
   verbose = 1,
   train_prop = 0.8,
   cv_folds = 0,
-  mu = 5,
-  tau = 1.5,
+  mu = 10,
+  tau = 2,
   solve_its = 3,
-  ncores = 1
+  ncores = 1,
+  warm_start = TRUE
 )
 }
 \arguments{
