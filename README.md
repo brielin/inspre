@@ -7,14 +7,25 @@ model inference. For more information on the method please consult the paper
 randomization](https://www.biorxiv.org/content/10.1101/2020.06.18.160176v2).
 
 ## Installation
-At the moment the package must be installed using `devtools::install_github()`.
+At the moment the package must be installed using `devtools::install_github("brielin/inspre")`.
 Eventually we intend to make the package available on CRAN.
 
+If you want to run tests, you will need to add the install option to download
+the tests as well. 
+
+```
+> devtools::install_github("brielin/inspre", INSTALL_opts="--install-tests")
+> library(testthat)
+> library(inspre)
+> test_package("inspre")
+```
+
 ## Requirements
-To run the main function `inspre`,
-- R
+To run the main function `inspre::inspre`,
+- R (>3.3.0)
 - Rcpp
 - RcppEigen
+- RcppArmadillo
 - foreach
 - doMC
 - Rlinsolve
