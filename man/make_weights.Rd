@@ -4,12 +4,12 @@
 \alias{make_weights}
 \title{Helper function to make weights for inspre.}
 \usage{
-make_weights(SE, max_min_ratio = NULL)
+make_weights(SE, max_med_ratio = NULL)
 }
 \arguments{
 \item{SE}{DxD matrix of standard errors.}
 
-\item{max_min_ratio}{Float > 1. Ratio of maximum weight to minimum non-zero
+\item{max_med_ratio}{Float > 1. Ratio of maximum weight to minimum non-zero
 weight. Improves conditioning when some SEs are very small.}
 }
 \description{

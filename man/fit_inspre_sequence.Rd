@@ -18,7 +18,8 @@ fit_inspre_sequence(
   mu = 5,
   tau = 2.5,
   solve_its = 3,
-  ncores = 1
+  ncores = 1,
+  warm_start = TRUE
 )
 }
 \arguments{

@@ -4,7 +4,7 @@
 \alias{stars_cv}
 \title{Calculates STARS cross-validation.}
 \usage{
-stars_cv(X, method, train_prop = 0.8, cv_folds = 10, beta = 0.1)
+stars_cv(X, method, train_prop = 0.8, cv_folds = 10)
 }
 \arguments{
 \item{X}{N x D data matrix.}
@@ -15,8 +15,6 @@ D x D x nlambda matrix and "lambda" a list of lambda values used.}
 \item{train_prop}{Float, proportion of rows of X to use at each iteration.}
 
 \item{cv_folds}{Integer, number of cross-validation folds.}
-
-\item{beta}{Cutoff for determining which value of lambda to choose.}
 }
 \description{
 Calculates STARS cross-validation.

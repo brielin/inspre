@@ -1,8 +1,8 @@
 D <- 3
 N <- 10
 p_net <- 1
-dataset <- generate_dataset(D, N, p_net)
-res <- cor_w_se(dataset$X)
+dataset <- huge::huge.generator(n = N, d = D, graph = "random")
+res <- cor_w_se(dataset$data)
 
 test_that("make_weights_works", {
   weights <- make_weights(res$SE_S)
@@ -10,8 +10,8 @@ test_that("make_weights_works", {
 })
 
 test_that("make_weights_max_works", {
-  weights <- make_weights(res$SE_S, max_min_ratio = 1.5)
-  expect_equal(max(weights)/min(weights), 1.5)
+  weights <- make_weights(res$SE_S, max_med_ratio = 1.5)
+  expect_equal(max(weights)/stats::median(weights), 1.5)
 })
 
 test_that("make_weights_na_works", {
@@ -21,9 +21,9 @@ test_that("make_weights_na_works", {
   weights <- make_weights(SE)
   expect_equal(sum(is.na(weights)), 0)
 
-  weights <- make_weights(SE, max_min_ratio = 1.5)
+  weights <- make_weights(SE, max_med_ratio = 1.5)
   expect_equal(sum(is.na(weights)), 0)
-  expect_equal(max(weights)/min(weights[weights > 0]), 1.5)
+  expect_equal(max(weights)/stats::median(weights[weights > 0]), 1.5)
 })
 
 test_that("inspre_worker_works", {

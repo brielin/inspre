@@ -5,10 +5,12 @@
 ## usethis namespace: end
 NULL
 
+
 off_diagonal <- function(X) {
   D <- ncol(X)
   return(X[!diag(D)])
 }
+
 
 inspre_primal <- function(X, U, V, lambda, gamma) {
   x_dist <- .5 * sum((X - U)^2, na.rm = TRUE)
@@ -17,6 +19,7 @@ inspre_primal <- function(X, U, V, lambda, gamma) {
   return(c(x_dist, l1_term, det_term))
 }
 
+
 inspre_lagrangian <- function(X, U, V, theta, rho, lambda, gamma) {
   VU_minus_I <- V %*% U - diag(nrow(U))
   VU_term1 <- sum(theta * VU_minus_I)
@@ -24,29 +27,78 @@ inspre_lagrangian <- function(X, U, V, theta, rho, lambda, gamma) {
   return(c(inspre_primal(X, U, V, lambda, gamma), VU_term1, VU_term2))
 }
 
+
+#' Helper function to do basic filtering of the TCE matrix.
+#'
+#' Large values of R, entries with a high SE, and row/columns with many nans
+#' can be removed.
+#'
+#' @param R_tce Matrix or data.frame. Estimates of TCE.
+#' @param SE_tce Matrix or data.frame. Standard errors of the entries in R_tce.
+#' @param max_R Float. Set all entries where `abs(R_tce) > max_R` to `NA`.
+#' @param max_SE Float. Set all entries whwere `SE > max_SE` tp `NA`.
+#' @param max_nan_perc Float. Remove columns and rows that are more than
+#'   `max_nan_perc` NAs.
+#' @export
+filter_tce <- function(R_tce, SE_tce, max_R = 1, max_SE = 0.5, max_nan_perc = 0.5) {
+  R_tce[is.nan(SE_tce)] <- NA
+  SE_tce[is.nan(SE_tce)] <- NA
+
+  R_too_large <- abs(R_tce) > max_R
+  R_tce[R_too_large] <- NA
+  SE_tce[R_too_large] <- NA
+  SE_too_large <- SE_tce > max_SE
+  R_tce[SE_too_large] <- NA
+  SE_tce[SE_too_large] <- NA
+
+  row_nan_perc <- rowMeans(is.na(R_tce))
+  col_nan_perc <- colMeans(is.na(R_tce))
+  max_row_nan = max(row_nan_perc)
+  max_col_nan = max(col_nan_perc)
+  while((max_row_nan > max_nan_perc) | (max_col_nan > max_nan_perc)){
+    if(max_row_nan >= max_col_nan){
+      which_max_row_nan <- which.max(row_nan_perc)
+      R_tce <- R_tce[-which_max_row_nan, -which_max_row_nan]
+      SE_tce <- SE_tce[-which_max_row_nan, -which_max_row_nan]
+    } else{
+      which_max_col_nan <- which.max(col_nan_perc)
+      R_tce <- R_tce[-which_max_col_nan, -which_max_col_nan]
+      SE_tce <- SE_tce[-which_max_col_nan, -which_max_col_nan]
+    }
+    row_nan_perc <- rowMeans(is.na(R_tce))
+    col_nan_perc <- colMeans(is.na(R_tce))
+    max_row_nan = max(row_nan_perc)
+    max_col_nan = max(col_nan_perc)
+  }
+  return(list("R" = R_tce, "SE" = SE_tce))
+}
+
+
 #' Helper function to make weights for inspre.
 #'
 #' @param SE DxD matrix of standard errors.
-#' @param max_min_ratio Float > 1. Ratio of maximum weight to minimum non-zero
+#' @param max_med_ratio Float > 1. Ratio of maximum weight to minimum non-zero
 #'   weight. Improves conditioning when some SEs are very small.
 #' @export
-make_weights <- function(SE, max_min_ratio = NULL) {
+make_weights <- function(SE, max_med_ratio = NULL) {
   weights <- 1 / SE^2
   weights[is.na(SE)] <- 0
 
-  if (is.null(max_min_ratio)) {
+  if (is.null(max_med_ratio)) {
     infs <- is.infinite(weights)
     weights[infs] <- 0
     max_weight <- max(weights)
     weights[infs] <- max_weight
   } else {
-    max_weight <- min(weights[weights > 0]) * max_min_ratio
+    median_weight <- stats::median(weights)
+    max_weight <- median_weight * max_med_ratio
     weights[weights > max_weight] <- max_weight
   }
 
   weights <- weights / mean(weights)
   return(weights)
 }
+
 
 #' Worker function to fit inspre for a single value of lambda.
 #'
@@ -175,6 +227,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     "time" = end_time - start_time))
 }
 
+
 #' Fits inspre model for sequence of lambda values.
 #'
 #' @param X DxD Matrix to find approximate sparse inverse of.
@@ -281,6 +334,7 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
               "L" = L_path, train_error = train_error, test_error = test_error))
 }
 
+
 #' Finds the inverse of X using Inverse Sparse Regression.
 #'
 #' @param X DxD Matrix to find approximate sparse inverse of.
@@ -322,7 +376,7 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
                    gamma = NULL, its = 100, delta_target = 1e-4,
                    symmetrize = FALSE, verbose = 1, train_prop = 0.8,
                    cv_folds = 0, mu = 10, tau = 2, solve_its = 3, ncores = 1,
-                   warm_start = TRUE) {
+                   warm_start = TRUE, min_nz = 1e-5) {
   D <- ncol(X)
 
   if(any(is.na(X))){
@@ -378,12 +432,12 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
         train_prop = train_prop, its = its, mu = mu, tau = tau,
         solve_its = solve_its, ncores = ncores, warm_start = warm_start)
       error_matrix[i, ] = cv_res$test_error
-      V_nz <- abs(cv_res$V) > 1e-8
+      V_nz <- abs(cv_res$V) > min_nz
       xi_mat <- xi_mat + V_nz
     }
     xi_mat <- xi_mat/cv_folds
-    xi_mat <- 2 * xi_mat * (1-xi_mat)
-    D_hat <- apply(xi_mat, 3, mean)
+    D_hat <- 2 * xi_mat * (1-xi_mat)
+    D_hat <- apply(D_hat, 3, mean)
     D_hat_se <- apply(
       xi_mat, 3, function(x){ stats::sd(x)/sqrt(length(x)) })
 
@@ -394,6 +448,67 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
     full_res$test_error <- test_error
     full_res$D_hat <- D_hat
     full_res$D_hat_se <- D_hat_se
+    full_res$xi_mat <- xi_mat
   }
   return(full_res)
+}
+
+
+#' Fits inverse sparse regression model.
+#'
+#' See also inspre::inspre() for more details.
+#'
+#' @param R_tce D x D matrix of  "total causal effects".
+#' @param W DxD Matrix of weights.
+#' @param rho Float. Initial learning rate for ADMM.
+#' @param lambda Float, sequence of floats of NULL. L1 regularization strength
+#'   on inverse of X. If NULL, a logarithmicallly spaced set of values between
+#'   the maximimum absolute off diagonal element of X and lambda_min_ratio
+#'   times this value will be used.
+#' @param lambda_min_ratio Float, ratio of maximum lambda to minimum lambda.
+#' @param nlambda Integer. Number of lambda values to try.
+#' @param alpha Float between 0 and 1 or NULL. If > 0, the model will be fit
+#'   once with gamma = 0 to find L0, then all subsequent fits will use
+#'   gamma = alpha * L0 / D. Set to NULL to provide gamma directly.
+#' @param gamma Float or sequence of nlambda floats or NULL. Determinant
+#'   regularization strength to use (for each lambda value). It is recommended
+#'   to set alpha rather than setting this directly.
+#' @param its Integer. Maximum number of iterations.
+#' @param delta_target Float. Target change in solution.
+#' @param verbose 0, 1 or 2. 2 to print convergence progress for each lambda,
+#'   1 to print convergence result for each lambda, 0 for no output.
+#' @param train_prop Float between 0 and 1. Proportion of data to use for
+#'   training in cross-validation.
+#' @param cv_folds Integer. Number of cross-validation folds to perform.
+#' @param mu rho modification parameter for ADMM. Rho will be
+#'   increased/decreased when the dual constrant and primal constraint are off
+#'   by a factor of > mu.
+#' @param tau rho modification parameter for ADMM. When called for, rho will be
+#'   increased/decreased by the factor tau.
+#' @param solve_its Integer, number of iterations of bicgstab/lasso to run
+#'   for each U and V update.
+#' @param ncores Integer, number of cores to use.
+#' @param warm_start Logical. Whether to use previous lambda value result as
+#'   starting point for next fit.
+#' @export
+fit_inspre <- function(R_tce, W = NULL, rho = 10.0, lambda = NULL,
+                       lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
+                       gamma = NULL, its = 100, delta_target = 1e-4,
+                       verbose = 1, train_prop = 0.8,
+                       cv_folds = 0, mu = 10, tau = 2, solve_its = 3,
+                       ncores = 1, warm_start = TRUE, min_nz = 1e-5){
+  D <- dim(R_tce)[1]
+  inspre_res <- inspre::inspre(
+    X = R_tce, W = W, rho = rho, lambda = lambda,
+    lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
+    gamma = gamma, its = its, delta_target = delta_target, symmetrize = FALSE,
+    verbose = verbose, train_prop = train_prop, cv_folds = cv_folds, mu = mu,
+    tau = tau, solve_its = solve_its, ncores = ncores, warm_start = warm_start, min_nz = min_nz)
+  inspre_res$R_hat <- array(0L, dim = dim(inspre_res$V))
+  for(i in 1:length(inspre_res$lambda)){
+    inspre_res$R_hat[ , , i] <-
+      diag(D) - inspre_res$V[ , , i] / diag(inspre_res$V[ , , i])
+  }
+  dimnames(inspre_res$R_hat) <- list(rownames(R_tce), colnames(R_tce), inspre_res$lambda)
+  return(inspre_res)
 }
