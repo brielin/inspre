@@ -1,0 +1,163 @@
+```{r}
+library(ivreg)
+```
+
+
+```{r}
+# Here is a stronger instrument.
+target <- "7722_SDF4_P1P2_ENSG00000078808"
+genes <- c("ENSG00000188290", "ENSG00000078808", "ENSG00000176022")
+keep_cells <- (obs_sc$gene_transcript == target)|(obs_sc$gene == ntc)
+keep_gene <- (var_sc$gene_id %in% genes)
+X <- obs_sc[keep_cells,]$gene_id != ntc
+Y <- hfile_sc[['X']][keep_gene, keep_cells]
+
+tsls_data <- as_tibble(t(Y))
+colnames(tsls_data) <- var_sc$gene_id[keep_gene]
+tsls_data$X <- X
+
+summary(ivreg(ENSG00000188290 ~ ENSG00000078808 | X, data = tsls_data))
+summary(ivreg(ENSG00000176022 ~ ENSG00000078808 | X, data = tsls_data))
+```
+
+```{r}
+# Checking https://www.jepusto.com/delta-method-and-2sls-ses/
+reg1 <- lm(ENSG00000078808 ~ X, data=tsls_data)
+reg2 <- lm(ENSG00000176022 ~ X, data=tsls_data)
+
+alpha <- coefficients(reg1)[2]
+beta <- coefficients(reg2)[2]
+delta <- beta/alpha
+
+u <- residuals(reg1)
+v <- residuals(reg2)
+
+V_denom <- alpha**2 * sum(tsls_data$X**2)**2
+V_num_1 <- sum((v - u*delta)**2 * tsls_data$X**2)
+V_num_2 <- sum((v**2 + delta**2 * u**2 - 2 * delta * u * v) * (tsls_data$X**2))
+V_num_3 <- sum((1 + delta**2 - 2 * delta) * (tsls_data$X**2))
+V_num_4 <- sum((1 - delta**2) * (tsls_data$X**2))
+
+V_denom_test <- alpha**2 * sum(tsls_data$X**2)
+V_num_test <- (1 - delta**2)
+
+SE_delta_1 <- sqrt(V_num_1/V_denom)
+SE_delta_2 <- sqrt(V_num_2/V_denom)
+SE_delta_3 <- sqrt(V_num_3/V_denom)
+SE_delta_4 <- sqrt(V_num_4/V_denom)
+SE_delta_test <- sqrt(V_num_test/V_denom_test)
+
+print(summary(ivreg(ENSG00000176022 ~ ENSG00000078808 | X, data = tsls_data)))
+print(delta)
+print(SE_delta_1)
+print(SE_delta_2)
+print(SE_delta_3)
+print(SE_delta_4)
+print(SE_delta_test)
+```
+
+```{r}
+# This one is a weaker instrument.
+target <- "4434_KLHL17_P1P2_ENSG00000187961"
+genes <- c("ENSG00000187961", "ENSG00000188290", "ENSG00000187608")
+keep_cells <- (obs_sc$gene_transcript == target)|(obs_sc$gene == ntc)
+keep_gene <- (var_sc$gene_id %in% genes)
+X <- obs_sc[keep_cells,]$gene_id != ntc
+Y <- hfile_sc[['X']][keep_gene, keep_cells]
+
+tsls_data <- as_tibble(t(Y))
+colnames(tsls_data) <- var_sc$gene_id[keep_gene]
+tsls_data$X <- X
+
+summary(ivreg(ENSG00000188290 ~ ENSG00000187961 | X, data = tsls_data))
+summary(ivreg(ENSG00000187608 ~ ENSG00000187961 | X, data = tsls_data))
+```
+
+```{r}
+# Checking https://www.jepusto.com/delta-method-and-2sls-ses/
+reg1 <- lm(ENSG00000187961 ~ X, data=tsls_data)
+reg2 <- lm(ENSG00000188290 ~ X, data=tsls_data)
+
+alpha <- coefficients(reg1)[2]
+beta <- coefficients(reg2)[2]
+delta <- beta/alpha
+
+u <- residuals(reg1)
+v <- residuals(reg2)
+
+V_denom <- alpha**2 * sum(tsls_data$X**2)**2
+V_num_1 <- sum((v - u*delta)**2 * tsls_data$X**2)
+V_num_2 <- sum((v**2 + delta**2 * u**2 - 2 * delta * u * v) * (tsls_data$X**2))
+V_num_3 <- sum((1 + delta**2 - 2 * delta) * (tsls_data$X**2))
+V_num_4 <- sum((1 - delta**2) * (tsls_data$X**2))
+
+V_denom_test <- alpha**2 * sum(tsls_data$X**2)
+V_num_test <- (1 - delta**2)
+
+SE_delta_1 <- sqrt(V_num_1/V_denom)
+SE_delta_2 <- sqrt(V_num_2/V_denom)
+SE_delta_3 <- sqrt(V_num_3/V_denom)
+SE_delta_4 <- sqrt(V_num_4/V_denom)
+SE_delta_test <- sqrt(V_num_test/V_denom_test)
+
+print(delta)
+print(SE_delta_1)
+print(SE_delta_2)
+print(SE_delta_3)
+print(SE_delta_4)
+print(SE_delta_test)
+```
+
+
+```{r}
+# Checking an R > 1
+target <- "4434_KLHL17_P1P2_ENSG00000187961"
+genes <- c("ENSG00000160752", "ENSG00000187608", "ENSG00000187961")
+keep_cells <- (obs_sc$gene_transcript == target)|(obs_sc$gene == ntc)
+keep_gene <- (var_sc$gene_id %in% genes)
+X <- obs_sc[keep_cells,]$gene_id != ntc
+Y <- hfile_sc[['X']][keep_gene, keep_cells]
+
+tsls_data <- as_tibble(t(Y))
+colnames(tsls_data) <- var_sc$gene_id[keep_gene]
+tsls_data$X <- X
+
+# These SEs are much higher than my estimates
+summary(ivreg(ENSG00000160752 ~ ENSG00000187961 | X, data = tsls_data))
+summary(ivreg(ENSG00000187608 ~ ENSG00000187961 | X, data = tsls_data))
+```
+
+```{r}
+# Checking https://www.jepusto.com/delta-method-and-2sls-ses/
+reg1 <- lm(ENSG00000187961 ~ X, data=tsls_data)
+reg2 <- lm(ENSG00000187608 ~ X, data=tsls_data)
+
+alpha <- coefficients(reg1)[2]
+beta <- coefficients(reg2)[2]
+delta <- beta/alpha
+
+u <- residuals(reg1)
+v <- residuals(reg2)
+
+V_denom <- alpha**2 * sum(tsls_data$X**2)**2
+V_num_1 <- sum((v - u*delta)**2 * tsls_data$X**2)
+V_num_2 <- sum((v**2 + delta**2 * u**2 - 2 * delta * u * v) * (tsls_data$X**2))
+V_num_3 <- sum((1 + delta**2 - 2 * delta) * (tsls_data$X**2))
+V_num_4 <- sum((1 - delta**2) * (tsls_data$X**2))
+
+V_denom_test <- alpha**2 * sum(tsls_data$X**2)
+V_num_test <- (1 - delta**2)
+
+SE_delta_1 <- sqrt(V_num_1/V_denom)
+SE_delta_2 <- sqrt(V_num_2/V_denom)
+SE_delta_3 <- sqrt(V_num_3/V_denom)
+SE_delta_4 <- sqrt(V_num_4/V_denom)
+SE_delta_test <- sqrt(V_num_test/V_denom_test)
+
+print(delta)
+print(SE_delta_1)
+print(SE_delta_2)
+print(SE_delta_3)
+print(SE_delta_4)
+print(SE_delta_test)
+```

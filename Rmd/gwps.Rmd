@@ -1,0 +1,492 @@
+```{r}
+require(hdf5r)
+require(inspre)
+require(tidyr)
+require(dplyr)
+require(purrr)
+require(ggplot2)
+require(igraph)
+```
+
+
+```{r}
+k562_norm_pb_fn = '/gpfs/commons/home/bbrown/perturb_inspre/gwps_data/K562_essential_normalized_bulk_01.h5ad'
+k562_norm_sc_fn = '/gpfs/commons/home/bbrown/perturb_inspre/gwps_data/K562_essential_normalized_singlecell_01.h5ad'
+# k562_norm_pb_fn = '/gpfs/commons/home/bbrown/perturb_inspre/gwps_data/K562_gwps_normalized_bulk_01.h5ad'
+# k562_norm_sc_fn = '/gpfs/commons/home/bbrown/perturb_inspre/gwps_data/K562_gwps_normalized_singlecell_01.h5ad'
+
+# At some point this gets auto-converted to 'non.targeting' by R...
+ntc = 'non-targeting'
+```
+
+
+```{r}
+hfile_sc <- H5File$new(k562_norm_sc_fn, "r")
+hfile_pb <- H5File$new(k562_norm_pb_fn, "r")
+```
+
+
+```{r}
+parse_df <- function(hfile, entry = "obs"){
+  colnames <- names(hfile[[entry]])
+  
+  cat_vals = NULL
+  if('__categories' %in% colnames){
+    cat_names = names(hfile[[entry]][['__categories']])
+    get_cat <- function(cat_name){
+      return(hfile[[entry]][['__categories']][[cat_name]][])
+    }
+    cat_vals = lapply(cat_names, get_cat)
+    names(cat_vals) = cat_names
+  }
+
+  drop <- colnames %in% c('__categories')
+  colnames <- colnames[!drop]
+  get_col <- function(name){
+    if(name %in% names(cat_vals)){
+      indices = hfile[[entry]][[name]][]
+      map = cat_vals[[name]]
+      values = map[indices+1]  # Yay, R! :'[
+    }
+    else{
+      values = hfile[[entry]][[name]][]
+    }
+    return(values)
+  }
+
+  df <- as.data.frame(lapply(colnames, get_col))
+  names(df) <- colnames
+  return(df)
+}
+```
+
+
+```{r}
+obs_sc <- parse_df(hfile_sc, 'obs')
+var_sc <- parse_df(hfile_sc, 'var')
+obs_pb <- parse_df(hfile_pb, 'obs')
+var_pb <- parse_df(hfile_pb, 'var')
+```
+
+
+```{r}
+beta <- t(hfile_pb[["X"]][,])
+
+rownames(beta) <- obs_pb$gene_transcript
+colnames(beta) <- var_pb$gene_id
+```
+
+
+```{r}
+as_tibble(beta) %>% ggplot(aes(x=ENSG00000237491)) + stat_density()
+as_tibble(beta) %>% ggplot(aes(x=ENSG00000053371)) + stat_density()
+as_tibble(beta) %>% ggplot(aes(x=ENSG00000138081)) + stat_density()
+as_tibble(beta) %>% ggplot(aes(x=ENSG00000260289)) + stat_density()
+```
+
+
+```{r}
+# intersect row and column gene names
+# There is ONE transcript called NM_001159524 instead of P1P2 etc, in row 659,
+#  that makes us use this more complicated parser.
+obs_pb <- obs_pb %>%
+  tidyr::extract(gene_transcript, into = c("trans_split", "gene_id"), regex = "^(.+)\\_(.+)$", remove = F) %>%
+  tidyr::separate(trans_split, c(NA, "gene_name", "target"), sep = "_", remove = T, extra = 'merge') 
+```
+
+```{r}
+obs_pb <- obs_pb %>% dplyr::arrange(gene_id, energy_test_p_value) %>%  
+  dplyr::filter(!duplicated(gene_id))
+common = intersect(var_pb$gene_id, obs_pb$gene_id)
+var_pb <- var_pb %>% dplyr::filter(gene_id %in% common)
+rownames(obs_pb) <- obs_pb$gene_id
+obs_pb <- obs_pb[var_pb$gene_id, ]
+
+beta <- beta[obs_pb$gene_transcript, var_pb$gene_id]
+```
+
+
+```{r}
+# Calculate per-instrument std errors
+# genes_ntc <- c(obs_pb$gene_id, ntc)
+# names(genes_ntc) <- genes_ntc
+# 
+# get_var <- function(.x){
+#   keep <- obs_sc$gene_id == .x
+#   cells <- hfile_sc[["X"]][, keep]
+#   cells[is.infinite(cells)] <- NaN
+#   obs <- rowSums(!is.na(cells))
+#   var <- apply(cells, 1, function(.x) var(.x, na.rm=T))
+#   return(c(obs, var))
+# }
+# 
+# response_vars <- t(as.data.frame(lapply(genes_ntc, get_var)))
+# save(response_vars, file='../../saved_rdata/response_vars_essential.Rdata')
+```
+
+
+```{r}
+load('../../saved_rdata/response_vars_essential.Rdata')
+```
+
+
+```{r}
+split_pos <- ncol(response_vars)/2
+n_obs <- response_vars[, 1:split_pos]
+response_vars <- response_vars[,(split_pos+1):ncol(response_vars)]
+colnames(response_vars) <- var_sc$gene_id
+colnames(n_obs) <- var_sc$gene_id
+response_vars <- response_vars[, obs_pb$gene_id]
+n_obs <- n_obs[, obs_pb$gene_id]
+```
+
+
+```{r}
+n <- t(t(n_obs[1:length(common), ]) + n_obs['non.targeting', ])
+n_total <- diag(n)
+n_target <- diag(n_obs[1:length(common), ])
+p1 <- n_obs[1:length(common), ]/n
+p0 <- 1 - p1
+
+v_bt <- t(t(p0) * response_vars['non.targeting', ]) + p1 * response_vars[1:length(common), ]
+v_wi <- (p1 - p1**2) * beta
+
+response_sds <- sqrt(v_bt + v_wi)
+inst_sds <- sqrt(p1*p0)
+```
+
+
+```{r}
+sample_inst_sds <- sample(c(inst_sds), 1000000)
+sample_response_sds <- sample(c(response_sds), 1000000)
+plot_tibble <- tibble(inst_sds = sample_inst_sds, response_sds = sample_response_sds)
+plot_tibble %>% ggplot(aes(x=inst_sds)) + stat_density()
+plot_tibble %>% ggplot(aes(x=response_sds)) + stat_density()
+```
+
+
+```{r}
+# Normalize Beta by XSE and YSE
+beta_norm <- (beta * inst_sds) / response_sds
+inst_effects <- diag(beta_norm)
+inst_SE <- 1/sqrt(diag(n))
+names(inst_effects) <- rownames(beta_norm)
+names(inst_SE) <- rownames(beta_norm)
+
+# One sided test to see if instrument (guide) had a significantly
+# negative effect on its target.
+inst_Z <- inst_effects/inst_SE
+p_inst <- pt(inst_Z, df = diag(n)-2)
+p_inst_adj <- p.adjust(p_inst, method='fdr')
+```
+
+
+```{r}
+inst_data <- tibble('target' = names(inst_effects), 'gene' = colnames(beta_norm), 'inst_effects' = inst_effects, 'inst_SE' = inst_SE,
+                    'inst_Z' = inst_Z, 'p_inst' = p_inst, 'p_inst_adj' = p_inst_adj,
+                    'n_target' = n_target, 'n_total' = n_total, 'control_exp' = obs_pb$control_expr,
+                    'cv' = var_pb$clean_cv)
+
+inst_data %>% ggplot(aes(x=inst_effects)) + stat_density()
+inst_data %>% ggplot(aes(x=inst_SE)) + stat_density()
+inst_data %>% ggplot(aes(x=inst_Z)) + stat_density()
+inst_data %>% ggplot(aes(x=cv)) + stat_density()
+inst_data %>% ggplot(aes(x=control_exp)) + stat_density()
+inst_data %>% ggplot(aes(x=p_inst)) + stat_density()
+inst_data %>% ggplot(aes(x=p_inst_adj)) + stat_density()
+inst_data %>% ggplot(aes(x=n_target)) + stat_density()
+inst_data %>% ggplot(aes(x=control_exp, y=inst_effects)) + geom_point() + xlim(0,2)
+inst_data %>% ggplot(aes(x=log2(cv), y=inst_Z)) + geom_point()
+
+```
+
+# ```{r}
+# descale_sc <- function(X){
+#   X*var_sc$std + var_sc$mean
+# }
+# 
+# # counts_per_cell <- sapply(seq(1, 1900001, by=100000), function(x) colSums(hfile_sc[['X']][,x:min(x+99999,1989578)]))
+# counts_per_cell <- sapply(seq(1, 300001, by=100000), function(x) colSums(descale_sc(hfile_sc[['X']][,x:min(x+99999,310385)])))
+# obs_sc$counts_per_cell <- Reduce(c, counts_per_cell)
+# obs_sc$size_factor <- obs_sc$counts_per_cell/median(obs_sc$counts_per_cell)
+# obs_sc <- obs_sc %>% mutate(gene_transcript_ntc = if_else(gene_id == ntc, ntc, gene_transcript))
+# size_factors <- obs_sc %>% group_by(gene_transcript_ntc) %>% summarize(group_size_factor = sum(size_factor, na.rm=T), gene_id = gene_id[1])
+# ntc_factor <- filter(size_factors, gene_transcript_ntc == ntc)
+# size_factors <- filter(size_factors, gene_transcript_ntc != ntc)
+# 
+# normalized_group_counts <- pmap_dbl(size_factors, function(gene_transcript_ntc, group_size_factor, gene_id) sum(hfile_sc[['X']][var_sc$gene_id == gene_id, obs_sc$gene_transcript == gene_transcript_ntc]*var_sc[var_sc$gene_id==gene_id,"std"] + var_sc[var_sc$gene_id==gene_id,"mean"]  )/group_size_factor)
+# normalized_group_counts <- tibble(gene_transcript = size_factors$gene_transcript_ntc, gene_id = size_factors$gene_id, group_count = normalized_group_counts)
+# save(normalized_group_counts, file = '/gpfs/commons/home/bbrown/ukbb_network/saved_rdata/normalized_counts_essential.Rdata')
+# ntc_count <- rowSums(descale_sc(hfile_sc[['X']][, obs_sc$gene_id == ntc]))/ntc_factor$group_size_factor
+# ntc_count <- tibble(ntc_count = ntc_count, gene_id = var_sc$gene_id)
+# 
+# fc_data <- left_join(normalized_group_counts, ntc_count, by = "gene_id") %>% mutate(fc = ntc_count/group_count, log_fc = log2(fc))
+# ```
+# 
+# ```{r}
+# inst_data <- left_join(inst_data, select(fc_data, gene_transcript, fc, log_fc), by = c("target" = "gene_transcript"))
+# inst_data$log_fc_na  <- replace_na(inst_data$log_fc, 12)
+# ```
+# 
+# ```{r}
+# inst_data %>% ggplot(aes(log_fc, inst_effects)) + geom_point() + ylim(0, -0.5)
+# inst_data %>% ggplot(aes(log_fc_na, inst_effects)) + geom_point() + ylim(0, -0.5)
+# inst_data %>% ggplot(aes(log_fc_na, inst_Z)) + geom_point()
+# ```
+
+```{r}
+# filter(inst_data, inst_effects < -0.3, log_fc < 1.5)
+keep_cells <- (obs_sc$gene_transcript == "7472_RPL3_P1P2_ENSG00000100316")|(obs_sc$gene == ntc)
+keep_gene <- var_sc$gene_id == "ENSG00000100316"
+X <- obs_sc[keep_cells,]$gene_id != ntc
+Y <- hfile_sc[['X']][keep_gene, keep_cells]
+plot_data <- tibble(targeted = X, exp = Y)
+plot_data %>% ggplot(aes(targeted, exp)) + geom_boxplot()
+```
+
+```{r}
+# filter(inst_data, inst_effects < -0.3, log_fc < 1.5)
+keep_cells <- (obs_sc$gene_transcript == "8816_TELO2_P1P2_ENSG00000100726")|(obs_sc$gene == ntc)
+keep_gene <- var_sc$gene_id == "ENSG00000100726"
+X <- obs_sc[keep_cells,]$gene_id != ntc
+Y <- hfile_sc[['X']][keep_gene, keep_cells]
+plot_data <- tibble(targeted = X, exp = Y)
+plot_data %>% ggplot(aes(targeted, exp)) + geom_boxplot()
+```
+
+```{r}
+# filter(inst_data, inst_effects < -0.3, log_fc < 1.5)
+keep_cells <- (obs_sc$gene_transcript == "7433_RPL11_P1P2_ENSG00000142676")|(obs_sc$gene == ntc)
+keep_gene <- var_sc$gene_id == "ENSG00000142676"
+X <- obs_sc[keep_cells,]$gene_id != ntc
+Y <- hfile_sc[['X']][keep_gene, keep_cells]
+plot_data <- tibble(targeted = X, exp = Y)
+plot_data %>% ggplot(aes(targeted, exp)) + geom_boxplot()
+```
+
+
+```{r}
+# # Checking, seems correct
+keep_cells <- (obs_sc$gene_transcript == "7424_RPAP3_P1P2_ENSG00000005175")|(obs_sc$gene == ntc)
+keep_gene <- var_sc$gene_id == "ENSG00000005175"
+X <- obs_sc[keep_cells,]$gene_id != ntc
+Y <- hfile_sc[['X']][keep_gene, keep_cells]
+
+print(cor(X, Y))
+```
+
+
+```{r}
+# as_tibble(Y) %>% ggplot(aes(x=value)) + stat_density()
+```
+
+
+# ```{r}
+# keep <- p_inst_adj < 0.05
+# beta_norm <- beta_norm[keep, keep]
+# inst_effects <- inst_effects[keep]
+# n <- n[keep, keep]
+# ```
+
+
+```{r}
+# Divide by diag to get ACE
+# Complication: some abs(R) values > 1, SE is undefined. Is this right? Could
+#   double check with 2SLS on a subset of genes/cells.
+# Confirm: SE is often underestimated for high R values (even < 1).
+R <- beta_norm / inst_effects
+SE_R <- sqrt((1 - pmin(R**2, 0.9**2))/(n_total*inst_effects**2))
+filt <- inspre::filter_tce(R, SE_R, max_R = 1.5, max_SE = 1, max_nan_perc = 0.5)
+R <- filt$R
+SE_R <- filt$SE
+```
+
+
+```{r}
+data_long <- tibble::as_tibble(R, rownames='Exposure') %>%
+  tidyr::pivot_longer(names_to = 'Outcome', values_to = 'R', cols = starts_with('ENSG'))
+data_long$SE_R <- (tibble::as_tibble(SE_R, rownames='Exposure') %>%
+  tidyr::pivot_longer(names_to = 'Outcome', values_to = 'SE_R', cols = starts_with('ENSG')))$SE_R
+data_long$beta_og <- (tibble::as_tibble(beta[rownames(R), colnames(R)], rownames='Exposure') %>%
+  tidyr::pivot_longer(names_to = 'Outcome', values_to = 'beta_og', cols = starts_with('ENSG')))$beta_og
+data_long$beta_norm <- (tibble::as_tibble(beta_norm[rownames(R), colnames(R)], rownames='Exposure') %>%
+  tidyr::pivot_longer(names_to = 'Outcome', values_to = 'beta_norm', cols = starts_with('ENSG')))$beta_norm
+# data_long$R_filt <- (tibble::as_tibble(R_filt, rownames='Exposure') %>%
+#   tidyr::pivot_longer(names_to = 'Outcome', values_to = 'R_filt', cols = starts_with('ENSG')))$R_filt
+# data_long$SE_filt <- (tibble::as_tibble(SE_filt, rownames='Exposure') %>%
+#   tidyr::pivot_longer(names_to = 'Outcome', values_to = 'SE_filt', cols = starts_with('ENSG')))$SE_filt
+
+data_long$Z <- data_long$R/data_long$SE_R
+p_ace <- 2*(1-pnorm(abs(data_long$Z)))
+p_ace_adj <- p.adjust(p_ace, method='fdr')
+data_long$p_ace <- p_ace
+data_long$p_ace_adj <- p_ace_adj
+```
+
+
+```{r}
+# Number of nominally significant effects
+n_nom = sum(data_long$p_ace < 0.05, na.rm = T)
+n_nom
+n_nom/length(data_long$p_ace)
+# Number of FDR significant effects
+n_adj = sum(data_long$p_ace_adj < 0.05, na.rm = T)
+n_adj
+n_adj/length(data_long$p_ace_adj)
+# Number of bonferroni significant effects
+n_bonf = sum(data_long$p_ace < 0.05/length(data_long$p_ace), na.rm = T)
+n_bonf
+n_bonf/length(data_long$p_ace)
+```
+
+
+```{r}
+# n_top = 500
+# top_targets <- dplyr::arrange(obs_pb, desc(control_expr))$gene_transcript[1:n_top]
+# top_genes <- dplyr::arrange(obs_pb, desc(control_expr))$gene_id[1:n_top]
+# 
+# data_top <- data_long %>% dplyr::filter(Exposure %in% top_targets, Outcome %in% top_genes)
+# keep_rows <- intersect(rownames(R_filt), top_targets)
+# keep_cols <- intersect(colnames(R_filt), top_genes)
+# R_top <- R_filt[keep_rows, keep_cols]
+# SE_top <- SE_filt[keep_rows, keep_cols]
+keep_targets <- filter(inst_data, p_inst_adj < 0.001, cv < 0.16)$target
+keep_genes <- filter(inst_data, p_inst_adj < 0.001, cv < 0.16)$gene
+data_top <- data_long %>% dplyr::filter(Exposure %in% keep_targets, Outcome %in% keep_genes)
+keep_rows <- intersect(rownames(R), keep_targets)
+keep_cols <- intersect(colnames(R), keep_genes)
+R_top <- R[keep_rows, keep_cols]
+SE_top <- SE_R[keep_rows, keep_cols]
+print(dim(R_top))
+```
+
+
+```{r}
+# TODO(brielin): I think these all line up, double check later.
+# col_genes <- unique(data_top$Outcome)
+# row_genes <- unique(data_top$Exposure)
+# R_plot <- t(matrix(data_top$R, nrow = length(unique(data_top$Outcome))))
+# plot_order <- hclust(as.dist(sqrt(2*(1-abs(R_plot)))))$order
+plot_order <- hclust(dist(R_top))$order
+
+# ggplot(data, aes(y=Exposure, x=Outcome)) + geom_tile(aes(fill=rg)) +
+#   scale_x_discrete(limits = phenos[ord_rho], labels = NULL) +
+#   scale_y_discrete(limits = phenos[rev(ord_rho)], labels = NULL) +
+#   scale_fill_gradient2(limits = c(-1, 1)) +
+#   labs(x = NULL, y = NULL, title = "a) Genetic correlation") +
+#   guides(fill = FALSE) +
+#   theme(plot.title = element_text(size=10), axis.ticks=element_blank()) + coord_fixed()
+
+ggplot(data_top, aes(y=Exposure, x=Outcome)) + geom_tile(aes(fill=R)) + scale_fill_gradient2() +
+    scale_y_discrete(limits = keep_rows[plot_order], labels = NULL) +
+    scale_x_discrete(limits = keep_cols[rev(plot_order)], labels = NULL)
+#   scale_fill_gradient2()
+```
+
+
+```{r}
+weights <- inspre::make_weights(SE_top, max_med_ratio = 50)
+lambda <- exp(seq(log(1), log(0.1), length.out = 10))
+cde_res_wide <- fit_inspre(R_top, W = weights, verbose = 2, cv_folds = 10, ncores = 8, warm_start = FALSE, delta_target = 5e-4, lambda = lambda, its=50, min_nz = 1e-3)
+save(cde_res_wide, file = "/gpfs/commons/home/bbrown/perturb_inspre/saved_rdata/cde_res_wide.Rdata")
+```
+
+
+```{r}
+# Lambda chosen from above
+cde_res <- fit_inspre(R_top, W = weights, verbose = 2, cv_folds = 0, ncores = 1, warm_start = FALSE, delta_target = 5e-4, lambda = 0.6, its=500)
+save(cde_res, file = "/gpfs/commons/home/bbrown/perturb_inspre/saved_rdata/cde_res.Rdata")
+```
+
+
+```{r}
+# THIS IS WRONG IT DIDNT GET SAVED
+load("/gpfs/commons/home/bbrown/perturb_inspre/saved_rdata/cde_res.Rdata")
+col_phenos <- colnames(cde_res$R_hat)
+row_phenos <- rownames(cde_res$R_hat)
+data <- data_top %>% dplyr::filter(Exposure %in% phenos, Outcome %in% phenos)
+
+G_hat <- cde_res$R_hat[ , , 1]
+U_hat <- cde_res$U[, , 1]
+diag(U_hat) <- 1
+
+rownames(U_hat) <- row_phenos
+colnames(U_hat) <- col_phenos
+
+G_long <- tidyr::pivot_longer(as_tibble(G_hat, rownames="Exposure"), -Exposure,
+                              names_to="Outcome", values_to = "G_hat")
+U_long <- tidyr::pivot_longer(as_tibble(U_hat, rownames = "Exposure"), -Exposure,
+                              names_to = "Outcome", values_to = "U_hat")
+data$U_hat <- U_long$U_hat
+data$G_hat <- G_long$G_hat
+
+# data <- data %>% mutate(scale_G = if_else(abs(G_hat) > 0.001, as.character(-sign(G_hat)*floor(log10(abs(G_hat)))), "0"),
+#                         scale_U = if_else(abs(U_hat) > 0.001, as.character(-sign(U_hat)*floor(log10(abs(U_hat)))), "0"))
+# data <- data %>% mutate(rg = if_else(Exposure == Outcome, 0, rg), R_tce = if_else(Exposure == Outcome, 0, R_tce))
+# 
+# rho <- matrix(data$rg, nrow = length(phenos))
+# diag(rho) <- 1
+# ord_rho <- hclust(as.dist(sqrt(2*(1-abs(rho)))))$order
+
+
+exp_norm <- diag(solve(diag(length(col_phenos)) - G_hat))
+data <- data %>%
+  left_join(enframe(exp_norm, value = "exp_norm"),
+            by = c("Exposure" = "name")) %>%
+  mutate(U_norm = exp_norm * U_hat) %>%
+  select(-exp_norm)
+
+graph <- make_igraph(R_cde = G_hat, min_edge_value = 0)
+
+distances <- igraph::distances(graph, mode = "out")
+distances_long <- tidyr::pivot_longer(
+  as_tibble(distances, rownames = "Exposure"), -Exposure,
+  names_to = "Outcome", values_to = "log_dist")
+
+data$G_path <- 1/exp(distances_long$log_dist)
+data$path_length <- purrr::pmap_int(
+  select(data, Exposure, Outcome, G_path),
+  function(Exposure, Outcome, G_path){
+    as.integer(ifelse(G_path > 0, length(shortest_paths(graph, Exposure, Outcome, mode = "out")$vpath[[1]]) - 1, NA))
+  }
+)
+
+data <- data %>% mutate(eff_explained = ifelse((Exposure != Outcome) & (G_path > 0), abs(G_path/U_norm), NA))
+
+# pheno_data <- selected_phenos %>% filter(phenotype %in% phenos) %>% select(phenotype, short_description, Neff)
+# 
+# pheno_data$out_deg <- igraph::degree(graph, mode = "out")[pheno_data$phenotype]
+# pheno_data$in_deg <- igraph::degree(graph, mode = "in")[pheno_data$phenotype]
+# pheno_data$deg <- degree(graph, mode = "all")[pheno_data$phenotype]
+# pheno_data$ord_gc <- sapply(phenos, function(p){which(phenos[ord_rho]==p)}, USE.NAMES = T)[pheno_data$phenotype]
+# pheno_data$D_G <- exp_norm[pheno_data$phenotype]
+
+all_data <- data %>% select(-scale_G, -scale_U)
+# save(pheno_data, file = save_pheno_data)
+save(all_data, file = save_all_data)
+save(graph, file = save_igraph)
+# write_csv(pheno_data, stringr::str_replace(save_pheno_data, ".Rdata", ".csv"))
+write_csv(all_data, stringr::str_replace(save_all_data,  ".Rdata", ".csv"))
+
+test <- data %>% select(Exposure, Outcome, short_description.1, short_description.2, R_tce, SE_tce, p_fdr, rg, se, G_hat, U_norm, G_path, path_length, eff_explained)
+```
+
+
+```{r}
+load("/gpfs/commons/home/bbrown/perturb_inspre/saved_rdata/top_genes_data.Rdata")
+load("/gpfs/commons/home/bbrown/perturb_inspre/saved_rdata/top_genes_graph.Rdata")
+```
+
+
+```{r}
+ggplot(data, aes(y=Exposure, x=Outcome)) + geom_tile(aes(fill=U_hat)) +
+   scale_x_discrete(limits = col_phenos[plot_order], labels = NULL) +
+   scale_y_discrete(limits = row_phenos[rev(plot_order)], labels = NULL) +
+   scale_fill_gradient2(limits = c(-1.3, 1.3))
+
+ggplot(data, aes(y=Exposure, x=Outcome)) + geom_tile(aes(fill=G_hat)) +
+   scale_x_discrete(limits = col_phenos[plot_order], labels = NULL) +
+   scale_y_discrete(limits = row_phenos[rev(plot_order)], labels = NULL) +
+   scale_fill_gradient2(limits = c(-1.3, 1.3))
+```
+
