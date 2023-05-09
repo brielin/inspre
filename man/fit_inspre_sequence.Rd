@@ -59,6 +59,9 @@ increased/decreased by the factor tau.}
 for each U and V update.}
 
 \item{ncores}{Integer, number of cores to use.}
+
+\item{warm_start}{Boolean, TRUE to start next fit with result of previous
+fit. Default FALSE.}
 }
 \description{
 Fits inspre model for sequence of lambda values.

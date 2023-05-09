@@ -253,12 +253,14 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 #' @param solve_its Integer, number of iterations of bicgstab/lasso to run
 #'   for each U and V update.
 #' @param ncores Integer, number of cores to use.
+#' @param warm_start Boolean, TRUE to start next fit with result of previous
+#'   fit. Default FALSE.
 fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
                                 its = 100, delta_target = 1e-4,
                                 symmetrize = FALSE, verbose = 1,
                                 gamma = 0.0, train_prop = 1.0,
                                 mu = 5, tau = 2.5, solve_its = 3, ncores = 1,
-                                warm_start = TRUE) {
+                                warm_start = FALSE) {
   # Break the matrix into training and test sets, equally and at random.
   D <- nrow(X)
   if(is.null(gamma)){
@@ -370,6 +372,8 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
 #' @param solve_its Integer, number of iterations of bicgstab/lasso to run
 #'   for each U and V update.
 #' @param ncores Integer, number of cores to use.
+#' @param warm_start Boolean, TRUE to start next fit with result of previous
+#'   fit. Default FALSE.
 #' @export
 inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
                    lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,

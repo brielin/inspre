@@ -1,7 +1,6 @@
 D <- 3
 N <- 10
-p_net <- 1
-dataset <- huge::huge.generator(n = N, d = D, graph = "random")
+dataset <- huge::huge.generator(n = N, d = D, verbose = FALSE)
 res <- cor_w_se(dataset$data)
 
 test_that("make_weights_works", {

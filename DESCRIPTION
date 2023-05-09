@@ -9,8 +9,10 @@ Encoding: UTF-8
 LazyData: true
 Suggests:
     huge,
-    testthat
-RoxygenNote: 7.1.2
+    testthat,
+    egg,
+    devtools
+RoxygenNote: 7.1.0
 LinkingTo: 
     Rcpp,
     RcppEigen
