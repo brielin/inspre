@@ -12,19 +12,19 @@ off_diagonal <- function(X) {
 }
 
 
-inspre_primal <- function(X, U, V, lambda, gamma) {
-  x_dist <- .5 * sum((X - U)^2, na.rm = TRUE)
+inspre_primal <- function(X, W, U, V, lambda, gamma) {
+  x_dist <- .5 * sum((W*(X - U))^2, na.rm = TRUE)
   l1_term <- lambda * sum(abs(off_diagonal(V)))
   det_term <- -1 * gamma * determinant(V)$modulus
   return(c(x_dist, l1_term, det_term))
 }
 
 
-inspre_lagrangian <- function(X, U, V, theta, rho, lambda, gamma) {
+inspre_lagrangian <- function(X, W, U, V, theta, rho, lambda, gamma) {
   VU_minus_I <- V %*% U - diag(nrow(U))
   VU_term1 <- sum(theta * VU_minus_I)
   VU_term2 <- .5 * rho * sum(VU_minus_I^2)
-  return(c(inspre_primal(X, U, V, lambda, gamma), VU_term1, VU_term2))
+  return(c(inspre_primal(X, W, U, V, lambda, gamma), VU_term1, VU_term2))
 }
 
 
@@ -141,7 +141,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     V <- warm_start$V
     U <- warm_start$U
   }
-  L <- sum(inspre_lagrangian(X, U, V, theta, rho, lambda, gamma))
+  L <- sum(inspre_lagrangian(X, W, U, V, theta, rho, lambda, gamma))
 
   min_delta_met <- 2
   delta_met <- 0
@@ -157,15 +157,17 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     d <- NULL
     U_next <- foreach::foreach (d = 1:D, .combine = cbind) %dopar% {
       Rlinsolve::lsolve.bicgstab(
-        A = diag(W[, d]) + rvtv,
+        A = diag(W[, d] + 0.2) + rvtv,
         B = rhs[, d],
         xinit = U[, d],
         maxiter = solve_its,
         verbose = FALSE)$x
+      # solve(diag(W[, d] + 0.1) + rvtv, rhs[, d])
     }
 
     glm_X <- sqrt(rho) * t(U_next)
     glm_Y <- ((rho + gamma) * diag(D) - t(theta)) / sqrt(rho)
+    # glm_Y <- (diag(D) - t(theta)) / sqrt(rho)
 
     d <- NULL
     V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
@@ -176,18 +178,47 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
             niter = solve_its)
       V_row
     }
+    # V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
+    #   penalty_factor <- rep(1, D)
+    #   penalty_factor[d] <- 0
+    #   V_row <- glmnet(glm_X, glm_Y[, d], lambda = lambda, penalty.factor = penalty_factor, standardize = FALSE, intercept = FALSE)$beta
+    #   c(as.matrix(V_row))
+    # }
 
     if (symmetrize) {
       V_next <- 0.5 * (V_next + t(V_next)) *
         (abs(V_next) > 1e-10 & abs(t(V_next)) > 1e-10)
     }
 
-    constraint_resid <- V_next %*% U_next - diag(D)
-    dual_resid <- rho * t(V) %*% (V_next - V) %*% U_next
-    theta <- theta + rho * constraint_resid
+    VU_next <- V_next %*% U_next
+    constraint_resid <- VU_next - diag(D)
+    non_constraint_resid <- U_next %*% V_next - diag(D)
+    dual_resid <- rho * t(V) %*% (V - V_next) %*% U_next
 
-    constraint_resid_norm <- sqrt(mean(constraint_resid^2))
-    dual_resid_norm <- sqrt(mean(dual_resid^2))
+    theta <- theta + rho * constraint_resid
+    lagrangian <- inspre_lagrangian(X, W, U_next, V_next, theta, rho, lambda, gamma)
+
+    constraint_norm <- max(sqrt(sum(VU_next**2)), sqrt(D))
+    dual_norm <- max(sqrt(2*lagrangian[1]), sqrt(sum((t(V_next) %*% theta)**2)))
+
+    tau_thresh <- sqrt(sqrt(mean(constraint_resid^2))/sqrt(mean(dual_resid^2)))
+    # cat(tau_thresh, 1/tau_thresh, "\n")
+
+
+    max_V <- max(abs(V_next))
+    n_bad <- sum(abs(V_next) > 1.5)
+    bad_sum <- sum(abs(V_next[abs(V_next) > 1.5]))
+    L1V <- sum(abs(V_next))
+
+    max_U <- max(abs(U_next))
+    n_bad_U <- sum(abs(U_next) > 1.5)
+    bad_sum_U <- sum(abs(U_next[abs(U_next) > 1.5]))
+    L2U <- sum(U_next**2)
+    DU <- sum(diag(U_next))
+
+    constraint_resid_norm <- sqrt(mean(constraint_resid^2))/constraint_norm
+    non_constraint_resid_norm <- sqrt(mean(non_constraint_resid^2))
+    dual_resid_norm <- sqrt(mean(dual_resid^2))/dual_norm
     if(constraint_resid_norm > mu*dual_resid_norm){
       rho <- tau*rho
     } else if(dual_resid_norm > mu*constraint_resid_norm){
@@ -198,7 +229,6 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     rmsd_v <- sqrt(mean((V - V_next)^2))
     U <- U_next
     V <- V_next
-    lagrangian <- inspre_lagrangian(X, U, V, theta, rho, lambda, gamma)
     L_next <- sum(lagrangian)
     L_delta <- abs(L_next - L) / L
     L <- L_next
@@ -209,14 +239,15 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     }
 
     if (verbose) {
-      cat(iter, L, rho, constraint_resid_norm, dual_resid_norm, rmsd_u, rmsd_v,
-          L_delta, Sys.time() - start_time, "\n")
+      # cat(iter, L, rho, constraint_resid_norm, non_constraint_resid_norm, dual_resid_norm, rmsd_u, rmsd_v, max_V, n_bad, bad_sum, max_U, n_bad_U, bad_sum_U,
+          # L_delta, Sys.time() - start_time, "\n")
+      cat(iter, L, lagrangian[1], rho, constraint_resid_norm, non_constraint_resid_norm, dual_resid_norm, bad_sum, bad_sum_U, L1V, L2U, DU, L_delta, Sys.time() - start_time,"\n")
     }
 
     # Converged if some iterations in a row have delta < target.
-    if (delta_met >= min_delta_met) {
-      break
-    }
+    # if (delta_met >= min_delta_met) {
+    #   break
+    # }
   }
   end_time <- Sys.time()
   return(list(
@@ -515,4 +546,22 @@ fit_inspre <- function(R_tce, W = NULL, rho = 10.0, lambda = NULL,
   }
   dimnames(inspre_res$R_hat) <- list(rownames(R_tce), colnames(R_tce), inspre_res$lambda)
   return(inspre_res)
+}
+
+
+#' Creates an igraph from CDE matrix.
+#'
+#' @param R_cde Matrix of causal effects.
+#' @param min_edge_value Minimum edge strength for pruning.
+#' @param max_edge_value Set edges above this number to this.
+#' @export
+make_igraph <- function(R_cde, min_edge_value = 0.01, max_edge_value = 0.999){
+  adj_matrix <- R_cde
+  adj_matrix[abs(adj_matrix) < min_edge_value] = 0
+  adj_matrix[abs(adj_matrix) > max_edge_value] = max_edge_value
+  zeros <- adj_matrix == 0
+  adj_matrix <- -log(abs(adj_matrix))
+  adj_matrix[zeros] = 0
+  return(igraph::graph_from_adjacency_matrix(
+    adj_matrix, mode = "directed", weighted = TRUE))
 }
