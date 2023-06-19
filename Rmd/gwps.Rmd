@@ -128,7 +128,7 @@ beta <- beta[obs_pb$gene_transcript, var_pb$gene_id]
 
 
 ```{r}
-load('../../saved_rdata/response_vars_essential.Rdata')
+load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/response_vars_essential.Rdata')
 ```
 
 
@@ -223,7 +223,7 @@ save(normalized_group_counts, file = '/gpfs/commons/groups/knowles_lab/gwps/save
 ntc_count <- rowSums(descale_sc(hfile_sc[['X']][, obs_sc$gene_id == ntc]))/ntc_factor$group_size_factor
 ntc_count <- tibble(ntc_count = ntc_count, gene_id = var_sc$gene_id)
 
-fc_data <- left_join(normalized_group_counts, ntc_count, by = "gene_id") %>% mutate(fc = ntc_count/group_count, log_fc = log2(fc))
+fc_data <- left_join(normalized_group_counts, ntc_count, by = "gene_id") %>% filter(!is.na(ntc_count)) %>% mutate(fc = ntc_count/group_count, log_fc = log2(fc))
 ```
 
 
