@@ -10,8 +10,29 @@
 #' @param B P-vector of coefficents (to be updated).
 #' @param lambda P-vector L1 regulation coeffs.
 #' @param niter Integer, number of lasso iterations to perform.
+#' @param fid Integer, passed from R to indicate the column of the data
+#'   during the inspre loop. Set to current column index to fix the diagonal
+#'   of the result to 1.
 #' @export
-lasso <- function(X, Y, B, lambda, niter) {
-    .Call(`_inspre_lasso`, X, Y, B, lambda, niter)
+lasso <- function(X, Y, B, lambda, niter, fixd = -1L) {
+    .Call(`_inspre_lasso`, X, Y, B, lambda, niter, fixd)
+}
+
+#' Fit lasso model for matrix of responses (one iteration)
+#'
+#' Minimize .5 || Y - XB ||^2_2 + gamma |B|_1
+#'
+#' This is ~4x faster than the above without multithreading but
+#' the above is still faster if you use 8+ threads in my testing.
+#' Not being used for now but leaving it in for reference.
+#'
+#' @param X NxP matrix of covariates.
+#' @param Y NxD matrix of response.
+#' @param B PxD matrix of coefficents (to be updated).
+#' @param lambda PxD matrix. L1 regulation coeffs.
+#' @param niter Integer, number of lasso iterations to perform.
+#' @export
+matrix_lasso <- function(X, Y, B, lambda, niter) {
+    .Call(`_inspre_matrix_lasso`, X, Y, B, lambda, niter)
 }
 

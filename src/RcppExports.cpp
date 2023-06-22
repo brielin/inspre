@@ -13,8 +13,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // lasso
-double lasso(const Map<MatrixXd> X, const Map<VectorXd> Y, Map<VectorXd> B, const Map<VectorXd> lambda, int niter);
-RcppExport SEXP _inspre_lasso(SEXP XSEXP, SEXP YSEXP, SEXP BSEXP, SEXP lambdaSEXP, SEXP niterSEXP) {
+double lasso(const Map<MatrixXd> X, const Map<VectorXd> Y, Map<VectorXd> B, const Map<VectorXd> lambda, int niter, int fixd);
+RcppExport SEXP _inspre_lasso(SEXP XSEXP, SEXP YSEXP, SEXP BSEXP, SEXP lambdaSEXP, SEXP niterSEXP, SEXP fixdSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -23,13 +23,30 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< Map<VectorXd> >::type B(BSEXP);
     Rcpp::traits::input_parameter< const Map<VectorXd> >::type lambda(lambdaSEXP);
     Rcpp::traits::input_parameter< int >::type niter(niterSEXP);
-    rcpp_result_gen = Rcpp::wrap(lasso(X, Y, B, lambda, niter));
+    Rcpp::traits::input_parameter< int >::type fixd(fixdSEXP);
+    rcpp_result_gen = Rcpp::wrap(lasso(X, Y, B, lambda, niter, fixd));
+    return rcpp_result_gen;
+END_RCPP
+}
+// matrix_lasso
+MatrixXd matrix_lasso(const Map<MatrixXd> X, const Map<MatrixXd> Y, const Map<MatrixXd> B, const Map<ArrayXXd> lambda, int niter);
+RcppExport SEXP _inspre_matrix_lasso(SEXP XSEXP, SEXP YSEXP, SEXP BSEXP, SEXP lambdaSEXP, SEXP niterSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type B(BSEXP);
+    Rcpp::traits::input_parameter< const Map<ArrayXXd> >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< int >::type niter(niterSEXP);
+    rcpp_result_gen = Rcpp::wrap(matrix_lasso(X, Y, B, lambda, niter));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_inspre_lasso", (DL_FUNC) &_inspre_lasso, 5},
+    {"_inspre_lasso", (DL_FUNC) &_inspre_lasso, 6},
+    {"_inspre_matrix_lasso", (DL_FUNC) &_inspre_matrix_lasso, 5},
     {NULL, NULL, 0}
 };
 

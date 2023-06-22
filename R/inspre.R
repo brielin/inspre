@@ -175,9 +175,12 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
       penalty_factor[d] <- 0
       V_row <- V[d, ]
       lasso(glm_X, glm_Y[, d], V_row, lambda = penalty_factor * lambda,
-            niter = solve_its)
+            niter = solve_its, fixd = d)
       V_row
     }
+    # print(sum(V_next != V_next_alt))
+    # print(V_next_alt[V_next != V_next_alt][1:10])
+    # print(V_next[V_next != V_next_alt][1:10])
     # V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
     #   penalty_factor <- rep(1, D)
     #   penalty_factor[d] <- 0
