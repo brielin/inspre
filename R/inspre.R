@@ -20,11 +20,14 @@ inspre_primal <- function(X, W, U, V, lambda, gamma) {
 }
 
 
-inspre_lagrangian <- function(X, W, U, V, theta, rho, lambda, gamma) {
-  VU_minus_I <- V %*% U - diag(nrow(U))
-  VU_term1 <- sum(theta * VU_minus_I)
-  VU_term2 <- .5 * rho * sum(VU_minus_I^2)
-  return(c(inspre_primal(X, W, U, V, lambda, gamma), VU_term1, VU_term2))
+inspre_lagrangian <- function(X, W, U, V, theta_UV, theta_VU, rhoUV, rhoVU, lambda, gamma) {
+  UVmI <- U %*% V - diag(nrow(U))
+  VUmI <- V %*% U - diag(nrow(U))
+  sumUV <- sum(theta_UV * UVmI)
+  sumVU <- sum(theta_VU * VUmI)
+  sum_rhoUV <- 0.5 * rhoUV * sum(UVmI^2)
+  sum_rhoVU <- 0.5 * rhoVU * sum(VUmI^2)
+  return(c(inspre_primal(X, W, U, V, lambda, gamma), sumUV, sumVU, sum_rhoUV, sum_rhoVU))
 }
 
 
@@ -127,84 +130,74 @@ make_weights <- function(SE, max_med_ratio = NULL) {
 inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
                           its = 100, delta_target = 1e-4, warm_start = NULL,
                           symmetrize = FALSE, verbose = FALSE, gamma = 0.0,
-                          mu = 5, tau = 1.5, solve_its = 3, ncores = 1) {
+                          mu = 5, tau = 1.5, solve_its = 3, ncores = 1,
+                          constraint = "UV") {
   D <- nrow(X)
   if(is.null(W)){
     W <- matrix(1L, nrow = D, ncol = D)
   }
-  theta <- matrix(0.0, D, D)
-  if (is.null(warm_start)) {
+  if (is.null(warm_start)) { # TODO: pass in theta?
     V <- diag(D)
     U <- diag(D)
     U[is.na(U)] <- 0
+    theta <- matrix(0.0, D, D)
   } else {
     V <- warm_start$V
     U <- warm_start$U
+    theta <- warm_start$theta
   }
-  L <- sum(inspre_lagrangian(X, W, U, V, theta, rho, lambda, gamma))
+
+  if(constraint == "UV"){
+    L <- sum(inspre_lagrangian(X, W, U, V, theta, matrix(0.0, D, D), rho, 0, lambda, gamma))
+  } else if(constraint == "VU"){
+    L <- sum(inspre_lagrangian(X, W, U, V, matrix(0.0, D, D), theta, 0, rho, lambda, gamma))
+  } else {
+    stop("Not implemented")
+  }
 
   min_delta_met <- 2
   delta_met <- 0
 
-  doMC::registerDoMC(cores = ncores)
   start_time <- Sys.time()
+  WX <- W * X
+  WX[is.na(WX)] <- 0
   for (iter in 1:its) {
-    rvtv <- rho * t(V) %*% V
-    WX <- W * X
-    WX[is.na(WX)] <- 0
-    rhs <- WX + rho * t(V) - t(V) %*% theta
+    if(constraint == "UV"){
+      U_next <- fit_U_UV_const(WX, W, V, U, theta, rho, 0, solve_its, T, ncores)
+      V_next <- fit_V_UV_const(V, U_next, theta, rho, lambda, solve_its, T, ncores)
+      UV_next <- U_next %*% V_next
 
-    d <- NULL
-    U_next <- foreach::foreach (d = 1:D, .combine = cbind) %dopar% {
-      Rlinsolve::lsolve.bicgstab(
-        A = diag(W[, d] + 0.2) + rvtv,
-        B = rhs[, d],
-        xinit = U[, d],
-        maxiter = solve_its,
-        verbose = FALSE)$x
-      # solve(diag(W[, d] + 0.1) + rvtv, rhs[, d])
+      constraint_resid <- UV_next - diag(D)
+      non_constraint_resid <- V_next %*% U_next - diag(D)
+      dual_resid <- rho * U_next %*% (V - V_next) %*% t(V_next)
+
+      theta <- theta + rho * constraint_resid
+      lagrangian <- inspre_lagrangian(X, W, U_next, V_next, theta, matrix(0L, D, D), rho, 0, lambda, gamma)
+
+      constraint_norm <- max(sqrt(sum(UV_next**2)), sqrt(D))
+      dual_norm <- max(sqrt(2*lagrangian[1]), sqrt(sum((theta %*% t(V))**2)))
+    } else if(constraint == "VU"){
+      U_next <- fit_U_VU_const(WX, W, V, U, theta, rho, 0.2, solve_its, T, ncores)
+      V_next <- fit_V_VU_const(V, U_next, theta, rho, lambda, solve_its, T, ncores)
+      VU_next <- V_next %*% U_next
+
+      constraint_resid <- VU_next - diag(D)
+      non_constraint_resid <- U_next %*% V_next - diag(D)
+      dual_resid <- rho * t(V) %*% (V - V_next) %*% U_next
+
+      theta <- theta + rho * constraint_resid
+      lagrangian <- inspre_lagrangian(X, W, U_next, V_next, matrix(0L, D, D), theta, 0, rho, lambda, gamma)
+
+      constraint_norm <- max(sqrt(sum(VU_next**2)), sqrt(D))
+      dual_norm <- max(sqrt(2*lagrangian[1]), sqrt(sum((t(V) %*% theta)**2)))
     }
-
-    glm_X <- sqrt(rho) * t(U_next)
-    glm_Y <- ((rho + gamma) * diag(D) - t(theta)) / sqrt(rho)
-    # glm_Y <- (diag(D) - t(theta)) / sqrt(rho)
-
-    d <- NULL
-    V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
-      penalty_factor <- rep(1, D)
-      penalty_factor[d] <- 0
-      V_row <- V[d, ]
-      lasso(glm_X, glm_Y[, d], V_row, lambda = penalty_factor * lambda,
-            niter = solve_its, fixd = d)
-      V_row
-    }
-    # print(sum(V_next != V_next_alt))
-    # print(V_next_alt[V_next != V_next_alt][1:10])
-    # print(V_next[V_next != V_next_alt][1:10])
-    # V_next <- foreach::foreach (d = 1:D, .combine = rbind) %dopar% {
-    #   penalty_factor <- rep(1, D)
-    #   penalty_factor[d] <- 0
-    #   V_row <- glmnet(glm_X, glm_Y[, d], lambda = lambda, penalty.factor = penalty_factor, standardize = FALSE, intercept = FALSE)$beta
-    #   c(as.matrix(V_row))
-    # }
 
     if (symmetrize) {
       V_next <- 0.5 * (V_next + t(V_next)) *
         (abs(V_next) > 1e-10 & abs(t(V_next)) > 1e-10)
     }
 
-    VU_next <- V_next %*% U_next
-    constraint_resid <- VU_next - diag(D)
-    non_constraint_resid <- U_next %*% V_next - diag(D)
-    dual_resid <- rho * t(V) %*% (V - V_next) %*% U_next
-
-    theta <- theta + rho * constraint_resid
-    lagrangian <- inspre_lagrangian(X, W, U_next, V_next, theta, rho, lambda, gamma)
-
-    constraint_norm <- max(sqrt(sum(VU_next**2)), sqrt(D))
-    dual_norm <- max(sqrt(2*lagrangian[1]), sqrt(sum((t(V_next) %*% theta)**2)))
-
-    tau_thresh <- sqrt(sqrt(mean(constraint_resid^2))/sqrt(mean(dual_resid^2)))
+    # tau_thresh <- sqrt(sqrt(mean(constraint_resid^2))/sqrt(mean(dual_resid^2)))
     # cat(tau_thresh, 1/tau_thresh, "\n")
 
 
@@ -259,7 +252,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
   }
   end_time <- Sys.time()
   return(list(
-    "V" = V, "U" = U, "L" = L, "F_term" = lagrangian[1],
+    "V" = V, "U" = U, "theta" = theta, "L" = L, "F_term" = lagrangian[1],
     "l1_term" = lagrangian[2], "det_term" = lagrangian[3], "rho" = rho,
     "L_delta" = L_delta, "constraint_resid" = constraint_resid_norm,
     "dual_resid" = dual_resid_norm, "iter" = iter,
@@ -716,6 +709,57 @@ predict_inspre_G_h5X <- function(res, X, beta, X_targets, X_vars, vars_to_use = 
     eps_hat[i] <- mean((data - X_hat[,,i])**2)
   }
   return(list(X_hat = X_hat, eps_hat = eps_hat))
+}
+
+
+#' Calculates model predictions given new data, with cross-validation errors.
+#'
+#' This function uses the mean((ZB(I-G)^-1)**2) error formulation.
+#' TODO: At the moment this pulls all the data into memory which is probably
+#'   fine since its normally only 10-20% of the total data size. Consider
+#'   modifying to pull one target at a time to match fit functionality.
+#'
+#' @param res Inspre result. Result of running fit_inspre for a single or
+#'   sequence of hyperparameter values.
+#' @param X H5D. Example: `X=hfile[['X']]` where hfile is an hdf5r object
+#'   containing a data matrix stored under label 'X'.
+#' @param beta Sequence of floats. Obsevered scale estimates of instrument
+#'   effects. Entry name corresponds to targeted gene.
+#' @param X_targets Sequence of strings with length equal to number of columns in
+#'   X. Entries correspond to the instrument applied to that entry.
+#' @param X_vars Sequence of strings with length equal to the number of rows
+#'   in X. Name of the feature measured in that row.
+#' @param vars_to_use Sequence of strings. Entries in X_vars to keep. Default
+#'   NULL to keep all.
+#' @param obs_to_use Sequence of bools. Indicator of columns of X to use in calculations.
+#'   Useful for cross validation. NULL to keep all.
+predict_inspre_inv_h5X <- function(res, X, beta, X_targets, X_vars, vars_to_use = NULL, obs_to_use = NULL){
+  if(is.null(vars_to_use)){
+    keep_vars <- rep(TRUE, length(X_vars))
+  } else {
+    keep_vars <- X_vars %in% vars_to_use
+  }
+  if(is.null(obs_to_use)){
+    obs_to_use <- rep(TRUE, length(X_targets))
+  }
+  D <- nrow(res$R_hat)
+  ImGi <- map(1:length(res$lambda), ~ solve(diag(D) - res$R_hat[,,.x]))
+  ImGi <- array(do.call(cbind, ImGi), dim=c(dim(ImGi[[1]]), length(ImGi)))
+
+  target_list <- intersect(setdiff(unique(X_targets[obs_to_use]), c('non-targeting')), names(beta))
+  calc_error <- function(target, ImGi_target, beta_target){
+    Xd <- X[keep_vars, (X_targets == target) & obs_to_use]
+    Xd_hat <- ImGi_target * beta_target
+    eps <- Xd - Xd_hat
+    return(sum(eps**2))
+  }
+
+  eps_hat <- vector("numeric", length(res$lambda))
+  for(i in 1:length(res$lambda)){
+    eps_hat_i <- sum(unlist(pmap(list(target_list, array_branch(ImGi[,,i], 1), beta[target_list]), calc_error)))
+    eps_hat[i] <- eps_hat_i/sum(obs_to_use)
+  }
+  return(list(eps_hat = eps_hat))
 }
 
 

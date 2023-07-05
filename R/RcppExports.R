@@ -3,14 +3,14 @@
 
 #' Fit lasso model (one iteration)
 #'
-#' Minimize .5 || Y - XB ||^2_2 + gamma |B|_1
+#' Minimize .5|| Y - XB ||^2_2 + gamma |B|_1
 #'
 #' @param X NxP matrix of covariates.
 #' @param Y N-vector of response.
-#' @param B P-vector of coefficents (to be updated).
+#' @param B P-vector of coefficents.
 #' @param lambda P-vector L1 regulation coeffs.
 #' @param niter Integer, number of lasso iterations to perform.
-#' @param fid Integer, passed from R to indicate the column of the data
+#' @param fixd Integer, passed from R to indicate the column of the data
 #'   during the inspre loop. Set to current column index to fix the diagonal
 #'   of the result to 1.
 #' @export
@@ -18,21 +18,67 @@ lasso <- function(X, Y, B, lambda, niter, fixd = -1L) {
     .Call(`_inspre_lasso`, X, Y, B, lambda, niter, fixd)
 }
 
-#' Fit lasso model for matrix of responses (one iteration)
+#' Fit U satisfying VU = I
 #'
-#' Minimize .5 || Y - XB ||^2_2 + gamma |B|_1
-#'
-#' This is ~4x faster than the above without multithreading but
-#' the above is still faster if you use 8+ threads in my testing.
-#' Not being used for now but leaving it in for reference.
-#'
-#' @param X NxP matrix of covariates.
-#' @param Y NxD matrix of response.
-#' @param B PxD matrix of coefficents (to be updated).
-#' @param lambda PxD matrix. L1 regulation coeffs.
-#' @param niter Integer, number of lasso iterations to perform.
+#' @param WX
+#' @param W
+#' @param V
+#' @param U
+#' @param theta
+#' @param rho
+#' @param gamma
+#' @param solve_its
+#' @param fixd
+#' @param nthreads
 #' @export
-matrix_lasso <- function(X, Y, B, lambda, niter) {
-    .Call(`_inspre_matrix_lasso`, X, Y, B, lambda, niter)
+fit_U_VU_const <- function(WX, W, V, U, theta, rho, gamma = 0, solve_its = 10L, fixd = FALSE, nthreads = 1L) {
+    .Call(`_inspre_fit_U_VU_const`, WX, W, V, U, theta, rho, gamma, solve_its, fixd, nthreads)
+}
+
+#' Fit U satisfying UV = I
+#'
+#' @param WX
+#' @param W
+#' @param V
+#' @param U
+#' @param theta
+#' @param rho
+#' @param gamma
+#' @param solve_its
+#' @param fixd
+#' @param nthreads
+#' @export
+fit_U_UV_const <- function(WX, W, V, U, theta, rho, gamma = 0, solve_its = 10L, fixd = FALSE, nthreads = 1L) {
+    .Call(`_inspre_fit_U_UV_const`, WX, W, V, U, theta, rho, gamma, solve_its, fixd, nthreads)
+}
+
+#' Fit V satisfying VU = I
+#'
+#' @param V
+#' @param U
+#' @param theta
+#' @param rho
+#' @param lambda
+#' @param solve_its
+#' @param fixd
+#' @param nthreads
+#' @export
+fit_V_VU_const <- function(V, U, theta, rho, lambda = 0, solve_its = 10L, fixd = FALSE, nthreads = 1L) {
+    .Call(`_inspre_fit_V_VU_const`, V, U, theta, rho, lambda, solve_its, fixd, nthreads)
+}
+
+#' Fit V satisfying VU = I
+#'
+#' @param V
+#' @param U
+#' @param theta
+#' @param rho
+#' @param lambda
+#' @param solve_its
+#' @param fixd
+#' @param nthreads
+#' @export
+fit_V_UV_const <- function(V, U, theta, rho, lambda = 0, solve_its = 10L, fixd = FALSE, nthreads = 1L) {
+    .Call(`_inspre_fit_V_UV_const`, V, U, theta, rho, lambda, solve_its, fixd, nthreads)
 }
 

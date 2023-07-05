@@ -65,16 +65,20 @@ beta_obs <- inst_effects$beta_obs
 names(beta_obs) <- inst_effects$inst_id
 R_hat <- data.matrix(select(inst_effects, ends_with('beta_hat')) %>% rename_with(~sub('_beta_hat', '', .x)))
 SE_hat <- data.matrix(select(inst_effects, ends_with('se_hat')) %>% rename_with(~sub('_se_hat', '', .x)))
+filtered <- filter_tce(R_hat, SE_hat, max_R = 1.5)
+R_hat <- filtered$R
+SE_hat <- filtered$SE
 rownames(R_hat) <- inst_effects$inst_id
 rownames(SE_hat) <- inst_effects$inst_id
 
 weights <- inspre::make_weights(SE_hat, max_med_ratio = 50)
-
 fit_res <- fit_inspre(R_hat, W = weights, verbose = 2, cv_folds = 0, ncores = 8, warm_start = FALSE, lambda = 0.96, its=50, rho=100, tau=1.5, mu=10)
+```
 
+
+```{r}
 test_obs <- (1:length(obs$gene_transcript) %in% folds$Fold1)
 test_obs <- test_obs & (obs$gene_id %in% c(keep_guides$target, ntc))
 
-pred_res <- predict_inspre_G_h5X(fit_res, hfile_sc[['X']], beta_obs, obs$gene_id, var$gene_id, keep_guides$target, test_obs)
-````
-
+pred_res <- predict_inspre_inv_h5X(fit_res, hfile_sc[['X']], beta_obs, obs$gene_transcript, var$gene_id, keep_guides$target, test_obs)
+```

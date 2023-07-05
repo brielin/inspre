@@ -13,40 +13,104 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // lasso
-double lasso(const Map<MatrixXd> X, const Map<VectorXd> Y, Map<VectorXd> B, const Map<VectorXd> lambda, int niter, int fixd);
+VectorXd lasso(const MatrixXd X, const VectorXd Y, const VectorXd B, const double lambda, int niter, int fixd);
 RcppExport SEXP _inspre_lasso(SEXP XSEXP, SEXP YSEXP, SEXP BSEXP, SEXP lambdaSEXP, SEXP niterSEXP, SEXP fixdSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type X(XSEXP);
-    Rcpp::traits::input_parameter< const Map<VectorXd> >::type Y(YSEXP);
-    Rcpp::traits::input_parameter< Map<VectorXd> >::type B(BSEXP);
-    Rcpp::traits::input_parameter< const Map<VectorXd> >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< const MatrixXd >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const VectorXd >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< const VectorXd >::type B(BSEXP);
+    Rcpp::traits::input_parameter< const double >::type lambda(lambdaSEXP);
     Rcpp::traits::input_parameter< int >::type niter(niterSEXP);
     Rcpp::traits::input_parameter< int >::type fixd(fixdSEXP);
     rcpp_result_gen = Rcpp::wrap(lasso(X, Y, B, lambda, niter, fixd));
     return rcpp_result_gen;
 END_RCPP
 }
-// matrix_lasso
-MatrixXd matrix_lasso(const Map<MatrixXd> X, const Map<MatrixXd> Y, const Map<MatrixXd> B, const Map<ArrayXXd> lambda, int niter);
-RcppExport SEXP _inspre_matrix_lasso(SEXP XSEXP, SEXP YSEXP, SEXP BSEXP, SEXP lambdaSEXP, SEXP niterSEXP) {
+// fit_U_VU_const
+MatrixXd fit_U_VU_const(const Map<MatrixXd> WX, const Map<MatrixXd> W, const Map<MatrixXd> V, const Map<MatrixXd> U, const Map<MatrixXd> theta, const double rho, const double gamma, const int solve_its, const bool fixd, const int nthreads);
+RcppExport SEXP _inspre_fit_U_VU_const(SEXP WXSEXP, SEXP WSEXP, SEXP VSEXP, SEXP USEXP, SEXP thetaSEXP, SEXP rhoSEXP, SEXP gammaSEXP, SEXP solve_itsSEXP, SEXP fixdSEXP, SEXP nthreadsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type X(XSEXP);
-    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type Y(YSEXP);
-    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type B(BSEXP);
-    Rcpp::traits::input_parameter< const Map<ArrayXXd> >::type lambda(lambdaSEXP);
-    Rcpp::traits::input_parameter< int >::type niter(niterSEXP);
-    rcpp_result_gen = Rcpp::wrap(matrix_lasso(X, Y, B, lambda, niter));
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type WX(WXSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type W(WSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type V(VSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type U(USEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type theta(thetaSEXP);
+    Rcpp::traits::input_parameter< const double >::type rho(rhoSEXP);
+    Rcpp::traits::input_parameter< const double >::type gamma(gammaSEXP);
+    Rcpp::traits::input_parameter< const int >::type solve_its(solve_itsSEXP);
+    Rcpp::traits::input_parameter< const bool >::type fixd(fixdSEXP);
+    Rcpp::traits::input_parameter< const int >::type nthreads(nthreadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(fit_U_VU_const(WX, W, V, U, theta, rho, gamma, solve_its, fixd, nthreads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// fit_U_UV_const
+MatrixXd fit_U_UV_const(const Map<MatrixXd> WX, const Map<MatrixXd> W, const Map<MatrixXd> V, const Map<MatrixXd> U, const Map<MatrixXd> theta, const double rho, const double gamma, const int solve_its, const bool fixd, const int nthreads);
+RcppExport SEXP _inspre_fit_U_UV_const(SEXP WXSEXP, SEXP WSEXP, SEXP VSEXP, SEXP USEXP, SEXP thetaSEXP, SEXP rhoSEXP, SEXP gammaSEXP, SEXP solve_itsSEXP, SEXP fixdSEXP, SEXP nthreadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type WX(WXSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type W(WSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type V(VSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type U(USEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type theta(thetaSEXP);
+    Rcpp::traits::input_parameter< const double >::type rho(rhoSEXP);
+    Rcpp::traits::input_parameter< const double >::type gamma(gammaSEXP);
+    Rcpp::traits::input_parameter< const int >::type solve_its(solve_itsSEXP);
+    Rcpp::traits::input_parameter< const bool >::type fixd(fixdSEXP);
+    Rcpp::traits::input_parameter< const int >::type nthreads(nthreadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(fit_U_UV_const(WX, W, V, U, theta, rho, gamma, solve_its, fixd, nthreads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// fit_V_VU_const
+MatrixXd fit_V_VU_const(const Map<MatrixXd> V, const Map<MatrixXd> U, const Map<MatrixXd> theta, const double rho, const double lambda, const int solve_its, const bool fixd, const int nthreads);
+RcppExport SEXP _inspre_fit_V_VU_const(SEXP VSEXP, SEXP USEXP, SEXP thetaSEXP, SEXP rhoSEXP, SEXP lambdaSEXP, SEXP solve_itsSEXP, SEXP fixdSEXP, SEXP nthreadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type V(VSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type U(USEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type theta(thetaSEXP);
+    Rcpp::traits::input_parameter< const double >::type rho(rhoSEXP);
+    Rcpp::traits::input_parameter< const double >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< const int >::type solve_its(solve_itsSEXP);
+    Rcpp::traits::input_parameter< const bool >::type fixd(fixdSEXP);
+    Rcpp::traits::input_parameter< const int >::type nthreads(nthreadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(fit_V_VU_const(V, U, theta, rho, lambda, solve_its, fixd, nthreads));
+    return rcpp_result_gen;
+END_RCPP
+}
+// fit_V_UV_const
+MatrixXd fit_V_UV_const(const Map<MatrixXd> V, const Map<MatrixXd> U, const Map<MatrixXd> theta, const double rho, const double lambda, const int solve_its, const bool fixd, const int nthreads);
+RcppExport SEXP _inspre_fit_V_UV_const(SEXP VSEXP, SEXP USEXP, SEXP thetaSEXP, SEXP rhoSEXP, SEXP lambdaSEXP, SEXP solve_itsSEXP, SEXP fixdSEXP, SEXP nthreadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type V(VSEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type U(USEXP);
+    Rcpp::traits::input_parameter< const Map<MatrixXd> >::type theta(thetaSEXP);
+    Rcpp::traits::input_parameter< const double >::type rho(rhoSEXP);
+    Rcpp::traits::input_parameter< const double >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< const int >::type solve_its(solve_itsSEXP);
+    Rcpp::traits::input_parameter< const bool >::type fixd(fixdSEXP);
+    Rcpp::traits::input_parameter< const int >::type nthreads(nthreadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(fit_V_UV_const(V, U, theta, rho, lambda, solve_its, fixd, nthreads));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
     {"_inspre_lasso", (DL_FUNC) &_inspre_lasso, 6},
-    {"_inspre_matrix_lasso", (DL_FUNC) &_inspre_matrix_lasso, 5},
+    {"_inspre_fit_U_VU_const", (DL_FUNC) &_inspre_fit_U_VU_const, 10},
+    {"_inspre_fit_U_UV_const", (DL_FUNC) &_inspre_fit_U_UV_const, 10},
+    {"_inspre_fit_V_VU_const", (DL_FUNC) &_inspre_fit_V_VU_const, 8},
+    {"_inspre_fit_V_UV_const", (DL_FUNC) &_inspre_fit_V_UV_const, 8},
     {NULL, NULL, 0}
 };
 
