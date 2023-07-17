@@ -1,0 +1,10 @@
+```{r}
+n_iter <- 10
+D <- 10
+N_cont <- 1000
+N_int <- 100
+DAG <- TRUE
+
+dataset <- generate_dataset(D, N_cont, N_int, DAG = DAG)
+inspre_res <- fit_inspre_from_X(dataset$Y, cv_folds=10, ncores=8, verbose=2)
+```

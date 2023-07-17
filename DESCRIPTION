@@ -12,7 +12,7 @@ Suggests:
     testthat,
     egg,
     devtools
-RoxygenNote: 7.1.0
+RoxygenNote: 7.1.1
 LinkingTo: 
     Rcpp,
     RcppEigen
@@ -22,4 +22,5 @@ Imports:
     stats,
     foreach,
     doMC,
-    Rlinsolve
+    purrr,
+    dplyr

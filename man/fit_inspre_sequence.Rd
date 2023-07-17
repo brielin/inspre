@@ -19,7 +19,7 @@ fit_inspre_sequence(
   tau = 2.5,
   solve_its = 3,
   ncores = 1,
-  warm_start = TRUE
+  warm_start = FALSE
 )
 }
 \arguments{

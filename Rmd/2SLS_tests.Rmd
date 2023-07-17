@@ -6,14 +6,14 @@ library(ivreg)
 ```{r}
 # Here is a stronger instrument.
 target <- "7722_SDF4_P1P2_ENSG00000078808"
-genes <- c("ENSG00000188290", "ENSG00000078808", "ENSG00000176022")
-keep_cells <- (obs_sc$gene_transcript == target)|(obs_sc$gene == ntc)
-keep_gene <- (var_sc$gene_id %in% genes)
-X <- obs_sc[keep_cells,]$gene_id != ntc
+ENSG00000242485 <- c("ENSG00000188290", "ENSG00000078808", "ENSG00000176022")
+keep_cells <- (obs$gene_transcript == target)|(obs$gene == ntc)
+keep_gene <- (var$gene_id %in% genes)
+X <- obs[keep_cells,]$gene_id != ntc
 Y <- hfile_sc[['X']][keep_gene, keep_cells]
 
 tsls_data <- as_tibble(t(Y))
-colnames(tsls_data) <- var_sc$gene_id[keep_gene]
+colnames(tsls_data) <- var$gene_id[keep_gene]
 tsls_data$X <- X
 
 summary(ivreg(ENSG00000188290 ~ ENSG00000078808 | X, data = tsls_data))

@@ -4,19 +4,23 @@
 \alias{lasso}
 \title{Fit lasso model (one iteration)}
 \usage{
-lasso(X, Y, B, lambda, niter)
+lasso(X, Y, B, lambda, niter, fixd = -1L)
 }
 \arguments{
 \item{X}{NxP matrix of covariates.}
 
 \item{Y}{N-vector of response.}
 
-\item{B}{P-vector of coefficents (to be updated).}
+\item{B}{P-vector of coefficents.}
 
 \item{lambda}{P-vector L1 regulation coeffs.}
 
 \item{niter}{Integer, number of lasso iterations to perform.}
+
+\item{fixd}{Integer, passed from R to indicate the column of the data
+during the inspre loop. Set to current column index to fix the diagonal
+of the result to 1.}
 }
 \description{
-Minimize .5 || Y - XB ||^2_2 + gamma |B|_1
+Minimize .5|| Y - XB ||^2_2 + gamma |B|_1
 }

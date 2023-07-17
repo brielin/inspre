@@ -18,7 +18,8 @@ inspre_worker(
   mu = 5,
   tau = 1.5,
   solve_its = 3,
-  ncores = 1
+  ncores = 1,
+  constraint = "UV"
 )
 }
 \arguments{
