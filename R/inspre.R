@@ -238,14 +238,14 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 
     if (verbose) {
       # cat(iter, L, rho, constraint_resid_norm, non_constraint_resid_norm, dual_resid_norm, rmsd_u, rmsd_v, max_V, n_bad, bad_sum, max_U, n_bad_U, bad_sum_U,
-          # L_delta, Sys.time() - start_time, "\n")
+      # L_delta, Sys.time() - start_time, "\n")
       cat(iter, L, lagrangian[1], rho, constraint_resid_norm, non_constraint_resid_norm, dual_resid_norm, bad_sum, bad_sum_U, bad_sum_G, L1V, L2U, DU, L_delta, Sys.time() - start_time,"\n")
     }
 
     # Converged if some iterations in a row have delta < target.
-    # if (delta_met >= min_delta_met) {
-    #   break
-    # }
+    if (delta_met >= min_delta_met) {
+      break
+    }
   }
   end_time <- Sys.time()
   return(list(
@@ -525,11 +525,11 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
 #'   starting point for next fit.
 #' @export
 fit_inspre_from_R <- function(R_tce, W = NULL, rho = 10.0, lambda = NULL,
-                       lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
-                       gamma = NULL, its = 100, delta_target = 1e-4,
-                       verbose = 1, train_prop = 0.8,
-                       cv_folds = 0, mu = 10, tau = 2, solve_its = 3,
-                       ncores = 1, warm_start = TRUE, min_nz = 1e-5){
+                              lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
+                              gamma = NULL, its = 100, delta_target = 1e-4,
+                              verbose = 1, train_prop = 0.8,
+                              cv_folds = 0, mu = 10, tau = 2, solve_its = 3,
+                              ncores = 1, warm_start = TRUE, min_nz = 1e-5){
   D <- dim(R_tce)[1]
   inspre_res <- inspre::inspre(
     X = R_tce, W = W, rho = rho, lambda = lambda,
@@ -547,9 +547,9 @@ fit_inspre_from_R <- function(R_tce, W = NULL, rho = 10.0, lambda = NULL,
 }
 
 
-multiple_iv_reg <- function(target, .X){
-  inst_obs <- rownames(.X) == target
-  control_obs <- rownames(.X) == "control"
+multiple_iv_reg <- function(target, .X, .targets){
+  inst_obs <- .targets == target
+  control_obs <- .targets == "control"
   n_target <- sum(inst_obs)
   n_control <- sum(control_obs)
   n_total <- n_target + n_control
@@ -584,26 +584,26 @@ multiple_iv_reg <- function(target, .X){
 #' @param beta Sequence of floats. Obsevered scale estimates of instrument
 #'   effects.
 #' @export
-predict_inspre <- function(res, X, beta){
+predict_inspre <- function(res, .X, .beta, .targets){
   # Ensure that the beta and X cols have the same entries in the same order.
-  vars_to_use <- intersect(colnames(X), names(beta))
-  beta <- beta[vars_to_use]
-  X <- X[, vars_to_use]
+  vars_to_use <- intersect(colnames(.X), names(.beta))
+  .beta <- .beta[vars_to_use]
+  .X <- .X[, vars_to_use]
 
-  ZB <- outer(rownames(X), colnames(X), "==")
-  ZB <- t(t(ZB) * beta)
+  ZB <- outer(.targets, colnames(.X), "==")
+  ZB <- t(t(ZB) * .beta)
 
   D <- nrow(res$R_hat)
-  ImGi <- map(1:length(res$lambda), ~ solve(diag(D) - res$R_hat[,,.x]))
+  ImGi <- purrr::map(1:length(res$lambda), ~ solve(diag(D) - res$R_hat[,,.x]))
   ImGi <- array(do.call(cbind, ImGi), dim=c(dim(ImGi[[1]]), length(ImGi)))
 
   eps_hat_G <- vector("numeric", length(res$lambda))
   eps_hat_I <- vector("numeric", length(res$lambda))
   for(i in 1:length(res$lambda)){
-    X_hat_G <- X %*% res$R_hat[,,i] + ZB
+    X_hat_G <- .X %*% res$R_hat[,,i] + ZB
     X_hat_I <- ZB %*% ImGi[,,i]
-    eps_hat_G[i] <- mean((X - X_hat_G)**2)
-    eps_hat_I[i] <- mean((X - X_hat_I)**2)
+    eps_hat_G[i] <- mean((.X - X_hat_G)**2)
+    eps_hat_I[i] <- mean((.X - X_hat_I)**2)
   }
   return(list("eps_hat_G" = eps_hat_G, "eps_hat_I" = eps_hat_I))
 }
@@ -651,21 +651,22 @@ predict_inspre <- function(res, X, beta){
 #' @param warm_start Logical. Whether to use previous lambda value result as
 #'   starting point for next fit.
 #' @export
-fit_inspre_from_X <- function(X, max_med_ratio = NULL, filter = TRUE,
+fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
                               rho = 10.0, lambda = NULL,
                               lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
                               gamma = NULL, its = 100, delta_target = 1e-4,
                               verbose = 1, train_prop = NULL,
                               cv_folds = 0, mu = 10, tau = 2, solve_its = 10,
                               ncores = 1, warm_start = FALSE, min_nz = 1e-5){
-  targets <- unique(rownames(X))
+  target_names <- unique(targets)
   keep_features <- intersect(targets, colnames(X))
   keep_targets <- c(keep_features, "control")
-  keep_obs <- rownames(X) %in% keep_targets
+  keep_obs <- targets %in% keep_targets
+  targets <- targets[keep_obs]
   X <- X[keep_obs, keep_features]
 
   if(verbose){cat("Fitting model with full dataset")}
-  inst_effects <- purrr::map(keep_features, ~ multiple_iv_reg(.x, X))  %>% purrr::list_rbind()
+  inst_effects <- purrr::map(keep_features, ~ multiple_iv_reg(.x, X, targets))  %>% purrr::list_rbind()
   beta_obs <- inst_effects$beta_obs
   names(beta_obs) <- inst_effects$target
   R_hat <- data.matrix(dplyr::select(inst_effects, ends_with('beta_hat')) %>% dplyr::rename_with(~sub('_beta_hat', '', .x)))
@@ -682,23 +683,25 @@ fit_inspre_from_X <- function(X, max_med_ratio = NULL, filter = TRUE,
     weights <- inspre::make_weights(SE_hat, max_med_ratio = max_med_ratio)
   }
   full_res <- fit_inspre_from_R(R_hat, W = weights, rho = rho, lambda = lambda,
-                         lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
-                         gamma = gamma, its = its, delta_target = delta_target,
-                         verbose = verbose, train_prop = 1,
-                         cv_folds = 0, mu = mu, tau = tau, solve_its = solve_its,
-                         ncores = ncores, warm_start = warm_start, min_nz = min_nz)
+                                lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
+                                gamma = gamma, its = its, delta_target = delta_target,
+                                verbose = verbose, train_prop = 1,
+                                cv_folds = 0, mu = mu, tau = tau, solve_its = solve_its,
+                                ncores = ncores, warm_start = warm_start, min_nz = min_nz)
 
   if(cv_folds > 0){
-    folds <- createFolds(1:sum(keep_obs), k=cv_folds)
-    eps_mat <- matrix(0L, 2, folds)
-    xi_mat <- array(0, dim = c(D, D, length(lambda)))
+    folds <- caret::createFolds(1:sum(keep_obs), k=cv_folds)
+    eps_hat_G <- array(0.0, length(full_res$lambda))
+    eps_hat_I <- array(0.0, length(full_res$lambda))
+    xi_mat <- array(0, dim = c(D, D, length(full_res$lambda)))
     for(i in seq_along(folds)){
       fold <- folds[[i]]
       if (verbose){
         cat(sprintf("Cross-validation iteration %d.\n", i))
       }
-      X_train <- X[~fold, ]
-      inst_effects <- purrr::map2(targets, X_train, multiple_iv_reg)
+      X_train <- X[-fold, ]
+      targets_train <- targets[-fold]
+      inst_effects <- purrr::map(keep_features, ~ multiple_iv_reg(.x, X_train, targets_train))  %>% purrr::list_rbind()
       beta_obs <- inst_effects$beta_obs
       names(beta_obs) <- inst_effects$target
       R_hat <- data.matrix(dplyr::select(inst_effects, ends_with('beta_hat')) %>% dplyr::rename_with(~sub('_beta_hat', '', .x)))
@@ -715,23 +718,19 @@ fit_inspre_from_X <- function(X, max_med_ratio = NULL, filter = TRUE,
         weights <- inspre::make_weights(SE_hat, max_med_ratio = max_med_ratio)
       }
       cv_res <- fit_inspre_from_R(R_hat, W = weights, rho = rho, lambda = lambda,
-                           lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
-                           gamma = gamma, its = its, delta_target = delta_target,
-                           verbose = verbose, train_prop = 1,
-                           cv_folds = 0, mu = mu, tau = tau, solve_its = solve_its,
-                           ncores = ncores, warm_start = warm_start, min_nz = min_nz)
+                                  lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
+                                  gamma = gamma, its = its, delta_target = delta_target,
+                                  verbose = verbose, train_prop = 1,
+                                  cv_folds = 0, mu = mu, tau = tau, solve_its = solve_its,
+                                  ncores = ncores, warm_start = warm_start, min_nz = min_nz)
       V_nz <- abs(cv_res$V) > min_nz
       xi_mat <- xi_mat + V_nz
       X_test <- X[fold, ]
-      eps <- predict_inspre(cv_res, X_test, beta_obs)
-      eps_mat[,i] <- eps
+      targets_test <- targets[fold]
+      eps <- predict_inspre(cv_res, X_test, beta_obs, targets_test)
+      eps_hat_G <- eps_hat_G + eps$eps_hat_G
+      eps_hat_I <- eps_hat_I + eps$eps_hat_I
     }
-    test_error <- apply(error_matrix, 2, mean)
-    test_error_se <- apply(
-      error_matrix, 2, function(x){ stats::sd(x)/sqrt(length(x))})
-    full_res$test_error_se <- test_error_se
-    full_res$test_error <- test_error
-
     xi_mat <- xi_mat/cv_folds
     D_hat <- 2 * xi_mat * (1-xi_mat)
     D_hat <- apply(D_hat, 3, mean)
@@ -741,6 +740,10 @@ fit_inspre_from_X <- function(X, max_med_ratio = NULL, filter = TRUE,
     full_res$D_hat_se <- D_hat_se
     full_res$xi_mat <- xi_mat
 
+    eps_hat_G <- eps_hat_G/cv_folds
+    eps_hat_I <- eps_hat_I/cv_folds
+    full_res$eps_hat_G <- eps_hat_G
+    full_res$eps_hat_I <- eps_hat_I
   }
   return(full_res)
 }

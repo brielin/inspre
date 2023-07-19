@@ -60,7 +60,7 @@ random <- function(D, p = 3/D){
 generate_network <- function(D, graph = 'scale-free', v_mode = 0.2,
                              v_max = 0.8, v_min = 0.05, DAG = FALSE){
   if(graph == 'scale-free'){
-    A <- scale_free(D, n = DAG + 1)
+    A <- scale_free(D, n = 3*(DAG + 1))
   } else if(graph == 'random'){
     A <- random(D, p = 3/D * (DAG+1))
   } else{
@@ -74,6 +74,8 @@ generate_network <- function(D, graph = 'scale-free', v_mode = 0.2,
   G = A
   G[A != 0] <- sample(c(1, -1), sum(A), replace = T, prob = c(0.6, 0.4)) *
     mc2d::rpert(sum(A), min = v_min, mode = v_mode, max = v_max)
+  rownames(G) <- paste0("V", 1:D)
+  colnames(G) <- paste0("V", 1:D)
   return(G)
 }
 
@@ -140,8 +142,8 @@ generate_data_inspre <- function(G, N_cont, N_int, size=N_int/10, min_int=N_int/
   Y <- t((t(Y) - mu_cont))
 
   colnames(Y) <- paste0("V", 1:D)
-  rownames(Y) <- c(rep("control", N_cont), paste0("V", rep(1:D, times=int_sizes)))
-  return(list(Y = Y, beta = beta))
+  targets <- c(rep("control", N_cont), paste0("V", rep(1:D, times=int_sizes)))
+  return(list(Y = Y, targets = targets))
 }
 
 
@@ -173,7 +175,7 @@ generate_dataset <- function(D, N_cont, N_int, size=N_int/10, min_int=N_int/10, 
     G <- censor_network(G, confounding)
   }
   data = generate_data_inspre(G, N_cont, N_int, size, min_int, int_r2, int_dir, noise)
-  return(list(Y=data$Y, G=G, beta=data$beta))
+  return(list(Y=data$Y, G=G, targets=data$targets))
 }
 
 
@@ -265,4 +267,17 @@ cor_w_se <- function(X) {
   })
   SE_S <- sqrt((1 - S_hat**2) / (N - 2))
   return(list("S_hat" = S_hat, "SE_S" = SE_S, "N" = N))
+}
+
+
+dataset_to_score <- function(dataset){
+  targets <- c(list(integer(0)), as.list(1:ncol(dataset$Y)))
+  target.index <- dataset$targets == "control"
+  for(i in seq_along(colnames(dataset$Y))){
+    name_i <- colnames(dataset$Y)[[i]]
+    target.index = target.index + (i+1)*(dataset$targets == name_i)
+  }
+  return(new("GaussL0penIntScore", data = dataset$Y, targets = targets,
+             target.index = target.index, lambda = 0.5*log(nrow(dataset$Y)),
+             intercept = FALSE, use.cpp = TRUE))
 }
