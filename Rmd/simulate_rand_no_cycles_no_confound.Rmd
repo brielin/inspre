@@ -1,0 +1,432 @@
+```{r}
+require(pcalg)
+require(foreach)
+require(rslurm)
+require(tibble)
+require(dplyr)
+require(inspre)
+require(ggplot2)
+```
+
+
+```{r}
+# To run Python methods add the following to the slurm submission script
+# source /gpfs/commons/home/bbrown/python3/bin/activate
+# python3 ../python_methods_comparison/run_python_methods.py
+
+# Right now these functions close over the hard-coded methods object. If we scale
+# this up further and each method takes a long time to run we could hypothetically
+# run one method at a time as an argument via the sim_settings tibble below.
+methods <- c("inspre", "inspre_DAG", "GIES", "LINGAM") #, "PC")
+
+# The rslurm param cpus_per_node sets the paralellism in terms of # of tasks
+# executed on each node. cpus_per_job is how many CPUs I want each of those
+# tasks to have available to it. So request cpus_per_node*cpus_per_job then
+# DELETE the first --cpus-per-task in the submit.sh script.
+cpus_per_node <- 1
+cpus_per_job <- 8
+slurm_options <- list(time = "40:00:00", mem = "16G", "cpus-per-task" = cpus_per_node*cpus_per_job)
+
+
+run_sim <- function(iter, D, N_cont, N_int, graph, DAG, p, v, int_beta, C){
+  dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, graph=graph, DAG=DAG,
+                              p=p, v=v, C=C, int_beta=int_beta)
+  write.table(dataset$Y, file=paste0("data_", iter, ".txt"), row.names=FALSE)
+  write.table(dataset$targets, file=paste0("targets_", iter, ".txt"), col.names=FALSE, row.names=FALSE)
+  write.table(dataset$G, file=paste0("G_true_", iter, ".txt"))
+
+  for(method in methods){
+    start_time <- Sys.time()
+    gc(reset=TRUE)
+    
+    if(method == "inspre"){
+      inspre_res <- fit_inspre_from_X(dataset$Y, dataset$targets, cv_folds=5, verbose=1, rho=10,
+                                      constraint = "UV", DAG = FALSE, ncores=cpus_per_job)
+      index <- which.min(inspre_res$eps_hat_G)
+      cat("Best lambda: ", index, ":", inspre_res$lambda[index], " \n")
+      G_hat <- inspre_res$R_hat[,,index]
+    } else if(method == "inspre_DAG"){
+      inspre_res <- fit_inspre_from_X(dataset$Y, dataset$targets, cv_folds=5, verbose=1, rho=10,
+                                      constraint = "UV", DAG = TRUE, ncores=cpus_per_job)
+      cat("Best lambda: ", index, ":", inspre_res$lambda[index], "\n")
+      index <- which.min(inspre_res$eps_hat_G)
+      G_hat <- inspre_res$R_hat[,,index]
+    } else if(method == "PC"){
+      suff_stat <- list(C = cor(dataset$Y), n = nrow(dataset$Y))
+      pc_res <- pcalg::pc(suff_stat, indepTest = pcalg::gaussCItest,
+                          labels = colnames(dataset$Y), alpha = 0.01)
+      G_hat <- as(pc_res@graph, "matrix")
+    } else if(method == "GIES"){
+      gies_res <- pcalg::gies(dataset_to_score(dataset))
+      G_hat <- as(gies_res$essgraph, "matrix") + 0.0
+      rownames(G_hat) <- paste0("V", 1:D)
+    } else if(method == "LINGAM"){
+      lingam_res <- pcalg::lingam(dataset$Y)
+      G_hat <- t(lingam_res$Bpruned)
+      rownames(G_hat) <- paste0("V", 1:D)
+    }
+    run_time <- as.numeric(difftime(Sys.time(), start_time, units="secs"))
+    gc_res <- gc()
+    write.table(G_hat, file=paste0("G_", method, "_", iter, ".txt"))
+    write.table(run_time, file=paste0("time_", method, "_", iter, ".txt"), row.names=F, col.names=F)
+    write.table(gc_res[11] + gc_res[12], file=paste0("memory_", method, "_", iter, ".txt"), row.names=F, col.names=F)
+  }
+}
+```
+
+
+```{r}
+# 1
+# No cycles, no confounding, random
+# High density, large effects, strong instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2.7
+graph <- "random"
+v <- 0.3
+p <- 0.08
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+
+
+```{r}
+# 2
+# No cycles, no confounding, random
+# Low density, large effects, strong instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2
+graph <- "random"
+v <- 0.3
+p <- 0.04
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+
+
+```{r}
+# 3
+# No cycles, no confounding, random
+# High density, small effects, strong instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2
+graph <- "random"
+v <- 0.15
+p <- 0.08
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+
+
+```{r}
+# 4
+# No cycles, no confounding, random
+# Low density, small effects, strong instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2
+graph <- "random"
+v <- 0.15
+p <- 0.04
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+
+
+```{r}
+# 5
+# No cycles, no confounding, random
+# High density, large effects, weak instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1.3
+graph <- "random"
+v <- 0.3
+p <- 0.08
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+
+
+```{r}
+# 6
+# No cycles, no confounding, random
+# Low density, large effects, weak instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1.1
+graph <- "random"
+v <- 0.3
+p <- 0.04
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+
+
+```{r}
+# 7
+# No cycles, no confounding, random
+# High density, small effects, weak instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1
+graph <- "random"
+v <- 0.15
+p <- 0.08
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+
+
+```{r}
+# 8
+# No cycles, no confounding, random
+# Low density, small effects, weak instruments
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1
+graph <- "random"
+v <- 0.15
+p <- 0.04
+DAG <- TRUE
+C <- 0
+
+dataset <- generate_dataset(D=D, N_cont=N_cont, N_int=N_int, int_beta=int_beta, graph=graph, v=v, p=p, DAG=DAG, C=C)
+
+as_tibble(x=dataset$var_eps) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$G[dataset$G > 0.01])) %>% ggplot(aes(x=value)) + geom_histogram()
+as_tibble(x=abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001]) %>% ggplot(aes(x=value)) + geom_histogram()
+
+print(mean(abs(dataset$G) > 0.01)*D)
+print(summary(dataset$int_beta))
+print(summary(dataset$var_obs))
+print(summary(dataset$var_conf))
+print(summary(dataset$var_eps))
+print(summary(c(abs(dataset$G[abs(dataset$G) > 0.01]))))
+print(summary(c(abs(dataset$R - diag(D))[abs(dataset$R - diag(D)) > 0.001])))
+```
+
+
+```{r}
+name <- paste(graph, DAG, p, v, int_beta, C, sep="_")
+
+sim_settings <- tibble(iter = 1:n_iter, D = D, N_cont = N_cont, N_int = N_int,
+                       graph = graph, DAG = DAG, p=p, v=v, C = C, int_beta=int_beta)
+
+sjob <- rslurm::slurm_apply(
+  run_sim, sim_settings, jobname = name, nodes = nrow(sim_settings),
+  cpus_per_node = cpus_per_node, slurm_options = slurm_options,
+  global_objects = c("run_sim", "methods", "cpus_per_job"), submit = F)
+```
+```{r}
+getwd()
+```

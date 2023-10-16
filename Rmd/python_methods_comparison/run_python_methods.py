@@ -1,0 +1,142 @@
+# pylint: disable=invalid-name
+"""Simple scipt to run python-based causal inference tools.
+
+To be run from Rmd/_rslurm_{sim_setting}/
+"""
+import csv
+import numpy as np
+import os
+import pandas as pd
+import sys
+import time
+from  sklearn import model_selection
+
+sys.path.append("../python_methods_comparison/golem/src/")
+sys.path.append("../python_methods_comparison/golem/src/models")
+sys.path.append("../python_methods_comparison/golem/src/trainers")
+sys.path.append("../python_methods_comparison/")
+
+import golem
+import golem_trainer
+import golem_model
+import helper_functions
+import tensorflow as tf
+
+tf.compat.v1.disable_eager_execution() 
+
+slurm_it = str(int(os.environ["SLURM_ARRAY_TASK_ID"]) + 1)
+data_file = "data_" + slurm_it + ".txt"
+targets_file = "targets_" + slurm_it + ".txt"
+
+X = pd.read_table(data_file, sep=' ').values
+targets = np.squeeze(pd.read_table(targets_file, header=None).values)
+X_dotears = helper_functions.make_dotears_data(X, targets)
+lam = np.exp(np.arange(np.log(1), np.log(1e-6), (np.log(1e-6)-np.log(1))/10 + 1e-8))[1:]
+print("Using lambda:")
+print(lam)
+N, D = X.shape
+
+# 1. notears
+t = time.time()
+print("Fitting notears will full dataset", flush=True)
+G_all = [helper_functions.notears_linear(X, lam_i, w_threshold=0.0) for lam_i in lam]
+skf = model_selection.StratifiedKFold(n_splits=5)
+eps_all = []
+for i, (train_index, test_index) in enumerate(skf.split(X, targets)):
+  print("Fitting notears CV iter {0:d}. Time {1:f}".format(i, time.time()-t), flush=True)
+  X_train = X[train_index, :]
+  X_test = X[test_index, :]
+  G_cv = [helper_functions.notears_linear(X_train, lam_i, w_threshold=0.0) for lam_i in lam]
+  eps_all.append([helper_functions.loss_notears(G_lam, X_test)[0] for G_lam in G_all])
+eps_all_arr = np.array(eps_all)
+eps_means = np.mean(eps_all, 0)
+print(eps_means, flush=True)
+best_i = np.argmin(eps_means)
+print("Best lambda: {0:f}".format(lam[best_i]))
+G_notears = G_all[best_i]
+t_notears = time.time() - t
+pd.DataFrame(
+    G_notears, index=["V" + str(i) for i in range(1, D+1)],
+    columns=["V" + str(i) for i in range(1, D+1)]).to_csv(
+        "G_notears_" + slurm_it + ".txt", sep=" ",
+        quoting=csv.QUOTE_NONNUMERIC, index_label=False)
+with open("time_notears_" + slurm_it + ".txt", "w") as f:
+    f.write(str(t_notears) + "\n")
+
+# 2. dotears
+t = time.time()
+print("Fitting dotears will full dataset", flush=True)
+G_all = [helper_functions.DOTEARS(X_dotears, lambda1=lam_i, w_threshold=0.0).fit() for lam_i in lam]
+skf = model_selection.StratifiedKFold(n_splits=5)
+eps_all = []
+for i, (train_index, test_index) in enumerate(skf.split(X, targets)):
+  print("Fitting dotears CV iter {0:d}. Time {1:f}".format(i, time.time()-t), flush=True)
+  X_dotears_train = helper_functions.make_dotears_data(X[train_index, :], targets[train_index])
+  X_dotears_test = helper_functions.make_dotears_data(X[test_index, :], targets[test_index])
+  G_cv = [helper_functions.DOTEARS(X_dotears_train, lambda1=lam_i, w_threshold=0.0).fit() for lam_i in lam]
+  eps_all.append([helper_functions.DOTEARS(X_dotears_test, lambda1=lam_i, w_threshold=0.0).loss(G_lam)[0]
+                  for G_lam, lam_i in zip(G_all, lam)])
+eps_all_arr = np.array(eps_all)
+eps_means = np.mean(eps_all, 0)
+print(eps_means, flush=True)
+best_i = np.argmin(eps_means)
+G_dotears = G_all[best_i]
+t_dotears = time.time() - t
+pd.DataFrame(
+    G_dotears, index=["V" + str(i) for i in range(1, D+1)],
+    columns=["V" + str(i) for i in range(1, D+1)]).to_csv(
+        "G_dotears_" + slurm_it + ".txt", sep=" ",
+        quoting=csv.QUOTE_NONNUMERIC, index_label=False)
+with open("time_dotears_" + slurm_it + ".txt", "w") as f:
+    f.write(str(t_dotears) + "\n")
+
+
+# 3. IGSP
+t = time.time()
+print("Fitting IGSP will full dataset (no CV required).", flush=True)
+G_igsp = helper_functions.run_igsp(X_dotears)
+t_igsp = time.time() - t
+pd.DataFrame(
+    G_igsp, index=["V" + str(i) for i in range(1, D+1)],
+    columns=["V" + str(i) for i in range(1, D+1)]).to_csv(
+        "G_igsp_" + slurm_it + ".txt", sep=" ",
+        quoting=csv.QUOTE_NONNUMERIC, index_label=False)
+with open("time_igsp_" + slurm_it + ".txt", "w") as f:
+    f.write(str(t_igsp) + "\n")
+
+
+# 4. GOLEM-NV
+t = time.time()
+print("Fitting GOLEM-NV will full dataset", flush=True)
+G_all = [helper_functions.fit_golem(X, lam_i) for lam_i in lam]
+skf = model_selection.StratifiedKFold(n_splits=5)
+eps_all = []
+for i, (train_index, test_index) in enumerate(skf.split(X, targets)):
+    print("Fitting GOLEM-NV CV iter {0:d}. Time {1:f}".format(i, time.time()-t), flush=True)
+    X_train = X[train_index, :]
+    X_test = X[test_index, :]
+    N_test = X_test.shape[0]
+    eps_i = []
+    for lam_i in lam:
+        G_train = helper_functions.fit_golem(X_train, lam_i)
+        model = golem_model.GolemModel(
+            N_test, D, lam_i, lambda_2=5.0, equal_variances=False, B_init=G_train)
+        trainer = golem_trainer.GolemTrainer()
+        model.sess.run(tf.compat.v1.global_variables_initializer())
+        _, loss, _, _ = trainer.eval_iter(model, X_test)
+        eps_i.append(loss)
+    eps_all.append(eps_i)
+eps_all_arr = np.array(eps_all)
+eps_means = np.mean(eps_all, 0)
+print(eps_means, flush=True)
+best_i = np.argmin(eps_means)
+print("Best lambda: {0:f}".format(lam[best_i]))
+G_golem = G_all[best_i]
+t_golem = time.time() - t
+pd.DataFrame(
+    G_golem, index=["V" + str(i) for i in range(1, D+1)],
+    columns=["V" + str(i) for i in range(1, D+1)]).to_csv(
+        "G_golem_" + slurm_it + ".txt", sep=" ",
+        quoting=csv.QUOTE_NONNUMERIC, index_label=False)
+with open("time_golem_" + slurm_it + ".txt", "w") as f:
+    f.write(str(t_golem) + "\n")

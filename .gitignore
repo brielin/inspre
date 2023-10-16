@@ -1,3 +1,5 @@
 .Rproj.user
 .Rhistory
 .RData
+Rmd/_rslurm_*
+slurm-*

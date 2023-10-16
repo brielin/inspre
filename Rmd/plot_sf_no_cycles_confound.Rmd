@@ -1,0 +1,261 @@
+```{r}
+require(foreach)
+require(inspre)
+require(dplyr)
+require(ggplot2)
+```
+
+
+```{r}
+all_methods <- c("inspre", "inspre_DAG", "GIES", "LINGAM", "notears", "dotears", "golem", "igsp") #, "PC")
+null_metric <- list(precision=NA, recall=NA, F1=NA, rmse=NA, shd=NA, weight_acc=NA, time=NA)
+get_metrics <- function(dir_name, n_iter, eps){
+  result <- foreach::foreach(iter = 1:n_iter, .combine = dplyr::bind_rows) %do% {
+    G_true <- read.table(paste0(dir_name, "/G_true_", iter, ".txt"))
+    method_metrics <- foreach(method = all_methods, .combine = bind_rows) %do% {
+      time_file <- paste0(dir_name, "/time_", method, "_", iter, ".txt")
+      if(file.exists(time_file)){
+        G_hat <- read.table(paste0(dir_name, "/G_", method, "_",  iter, ".txt"))
+        metrics <- inspre::calc_metrics(G_hat, G_true, eps)
+        metrics$method <- method
+        metrics$time <- read.table(time_file)[[1]]
+        return(metrics)
+      } else {
+        metrics <- null_metric
+        metrics$method <- method
+        metrics$time <- NA
+      }
+      return(metrics)
+    }
+    method_metrics$iter <- iter
+    return(method_metrics)
+  }
+  return(result)
+}
+```
+
+
+```{r}
+# 1
+# No cycles, confounding, scale-free
+# High density, large effects, strong instruments
+sim_name <- "High/Large/Strong"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2.5
+graph <- "scalefree"
+v <- 0.3
+p <- 0.1
+DAG <- TRUE
+C <- 5
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
+
+
+```{r}
+# 2
+# No cycles, confounding, scale-free
+# Low density, large effects, strong instruments
+sim_name <- "Low/Large/Strong"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2
+graph <- "scalefree"
+v <- 0.3
+p <- 0.35
+DAG <- TRUE
+C <- 5
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
+
+
+```{r}
+# 3
+# No cycles, confounding, scale-free
+# High density, small effects, strong instruments
+sim_name <- "High/Small/Strong"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2
+graph <- "scalefree"
+v <- 0.15
+p <- 0.1
+DAG <- TRUE
+C <- 25
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
+
+
+```{r}
+# 4
+# No cycles, confounding, scale-free
+# Low density, small effects, strong instruments
+sim_name <- "Low/Small/Strong"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -2
+graph <- "scalefree"
+v <- 0.15
+p <- 0.35
+DAG <- TRUE
+C <- 25
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
+
+
+
+
+```{r}
+# 5
+# No cycles, confounding, scale-free
+# High density, large effects, weak instruments
+sim_name <- "High/Large/Weak"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1.3
+graph <- "scalefree"
+v <- 0.3
+p <- 0.1
+DAG <- TRUE
+C <- 5
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
+
+
+```{r}
+# 6
+# No cycles, confounding, scale-free
+# Low density, large effects, weak instruments
+sim_name <- "Low/Large/Weak"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1.1
+graph <- "scalefree"
+v <- 0.3
+p <- 0.35
+DAG <- TRUE
+C <- 5
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
+
+
+```{r}
+# 7
+# No cycles, confounding, scale-free
+# High density, small effects, weak instruments
+sim_name <- "High/Small/Weak"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1
+graph <- "scalefree"
+v <- 0.15
+p <- 0.1
+DAG <- TRUE
+C <- 25
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), precision = mean(precision, na.rm=T), recall = mean(recall, na.rm=t), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
+
+
+```{r}
+# 8
+# No cycles, confounding, scale-free
+# Low density, small effects, weak instruments
+sim_name <- "Low/Small/Weak"
+n_iter <- 10
+D <- 50
+N_int <- 100
+N_cont <- D*N_int
+int_beta <- -1
+graph <- "scalefree"
+v <- 0.15
+p <- 0.35
+DAG <- TRUE
+C <- 25
+
+dir_name <- gsub("-", "", gsub(".", "", paste("_rslurm", graph, DAG, p, v, int_beta, C, sep="_"), fixed=TRUE))
+metrics <- get_metrics(dir_name, n_iter, v/4)
+
+metrics %>% dplyr::group_by(method) %>% dplyr::summarise(F1 = mean(F1, na.rm=T), mae = mean(mae, na.rm=T), shd = mean(shd, na.rm=T), weight_acc = mean(weight_acc, na.rm=T), time=mean(time, na.rm=T))
+metrics %>% ggplot(aes(x=method, y=F1)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + labs(title=sim_name)
+metrics %>% filter(!(method %in% c("igsp", "GIES"))) %>% ggplot(aes(x=method, y=mae)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=shd)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=weight_acc)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+metrics %>% ggplot(aes(x=method, y=time)) + geom_violin(draw_quantiles = 0.5) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_y_log10()
+```
