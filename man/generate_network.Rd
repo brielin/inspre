@@ -6,24 +6,24 @@
 \usage{
 generate_network(
   D,
-  graph = "scale-free",
-  v_mode = 0.2,
-  v_max = 0.8,
-  v_min = 0.05,
-  DAG = FALSE
+  graph = "scalefree",
+  p = 0.4,
+  v = 0.2,
+  DAG = FALSE,
+  max_eig = 0.9
 )
 }
 \arguments{
 \item{D}{Integer. Number of nodes to simulate.}
 
-\item{graph}{String. One of 'scale-free' or 'random'. Type of network
+\item{graph}{String. One of 'scalefree' or 'random'. Type of network
 to simulate.}
 
-\item{v_mode}{Float. Mode of the pert distribution.}
+\item{p}{Float between 0 and 1. Parameter for network generation. For
+scalefree, p is the probability of adding a new node at each iteration.
+For random, it is the probability of including each edge.}
 
-\item{v_max}{Float. Max of the pert distribuion.}
-
-\item{v_min}{Float. Min of the pert distribution.}
+\item{v}{Float. Mode of the pert distribution for simulated edge weights.}
 
 \item{DAG}{Bool. TRUE to ensure the returned graph is a DAG.}
 }

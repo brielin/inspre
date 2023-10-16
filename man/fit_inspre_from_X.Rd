@@ -6,9 +6,10 @@
 \usage{
 fit_inspre_from_X(
   X,
+  targets,
   max_med_ratio = NULL,
   filter = TRUE,
-  rho = 10,
+  rho = 100,
   lambda = NULL,
   lambda_min_ratio = 0.01,
   nlambda = 20,
@@ -20,11 +21,13 @@ fit_inspre_from_X(
   train_prop = NULL,
   cv_folds = 0,
   mu = 10,
-  tau = 2,
+  tau = 1.5,
   solve_its = 10,
   ncores = 1,
   warm_start = FALSE,
-  min_nz = 1e-05
+  min_nz = 1e-05,
+  constraint = "UV",
+  DAG = FALSE
 )
 }
 \arguments{
@@ -83,6 +86,10 @@ for each U and V update.}
 
 \item{warm_start}{Logical. Whether to use previous lambda value result as
 starting point for next fit.}
+
+\item{constraint}{One of "UV" or "VU". Constraint to use.}
+
+\item{DAG}{Bool. True to resitrict solutions to approximate DAGs.}
 }
 \description{
 See also inspre::inspre() for more details.

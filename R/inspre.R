@@ -43,7 +43,7 @@ inspre_lagrangian <- function(X, W, U, V, theta_UV, theta_VU, rhoUV, rhoVU, lamb
 #' @param max_nan_perc Float. Remove columns and rows that are more than
 #'   `max_nan_perc` NAs.
 #' @export
-filter_tce <- function(R_tce, SE_tce, max_R = 1, max_SE = 0.5, max_nan_perc = 0.5) {
+filter_tce <- function(R_tce, SE_tce, max_R = 2, max_SE = 1, max_nan_perc = 0.5) {
   R_tce[is.nan(SE_tce)] <- NA
   SE_tce[is.nan(SE_tce)] <- NA
 
@@ -125,16 +125,19 @@ make_weights <- function(SE, max_med_ratio = NULL) {
 #' @param solve_its Integer, number of iterations of bicgstab/lasso to run
 #'   for each U and V update.
 #' @param ncores Integer, number of cores to use.
+#' @param constraint One of "UV" or "VU". Constraint to use.
+#' @param DAG Bool. True to resitrict solutions to approximate DAGs.
 inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
                           its = 100, delta_target = 1e-4, warm_start = NULL,
                           symmetrize = FALSE, verbose = FALSE, gamma = 0.0,
                           mu = 5, tau = 1.5, solve_its = 3, ncores = 1,
-                          constraint = "UV") {
+                          constraint = "UV", DAG = FALSE) {
   D <- nrow(X)
   if(is.null(W)){
     W <- matrix(1.0, nrow = D, ncol = D)
   }
-  if (is.null(warm_start)) { # TODO: pass in theta?
+  if (is.null(warm_start)) {
+    # TODO: consider initializing with psuedoinverse
     V <- diag(D)
     U <- diag(D)
     U[is.na(U)] <- 0
@@ -153,6 +156,8 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
   }
   min_delta_met <- 2
   delta_met <- 0
+  max_wrong_way <- 3
+  wrong_way <- 0
 
   start_time <- Sys.time()
   WX <- W * X
@@ -160,8 +165,8 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 
   for (iter in 1:its) {
     if(constraint == "UV"){
-      U_next <- fit_U_UV_const(WX, W, V, U, theta, rho, 0, solve_its, T, ncores)
-      V_next <- fit_V_UV_const(V, U_next, theta, rho, lambda, solve_its, T, ncores)
+      U_next <- fit_U_UV_const(WX, W, V, U, theta, rho, 0, solve_its, DAG, ncores)
+      V_next <- fit_V_UV_const(V, U_next, theta, rho, lambda, solve_its, DAG, ncores)
       UV_next <- U_next %*% V_next
 
       constraint_resid <- UV_next - diag(D)
@@ -174,8 +179,8 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
       constraint_norm <- max(sqrt(sum(UV_next**2)), sqrt(D))
       dual_norm <- max(sqrt(2*lagrangian[1]), sqrt(sum((theta %*% t(V))**2)))
     } else if(constraint == "VU"){
-      U_next <- fit_U_VU_const(WX, W, V, U, theta, rho, 0.2, solve_its, T, ncores)
-      V_next <- fit_V_VU_const(V, U_next, theta, rho, lambda, solve_its, T, ncores)
+      U_next <- fit_U_VU_const(WX, W, V, U, theta, rho, 0, solve_its, DAG, ncores)
+      V_next <- fit_V_VU_const(V, U_next, theta, rho, lambda, solve_its, DAG, ncores)
       VU_next <- V_next %*% U_next
 
       constraint_resid <- VU_next - diag(D)
@@ -188,7 +193,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
       constraint_norm <- max(sqrt(sum(VU_next**2)), sqrt(D))
       dual_norm <- max(sqrt(2*lagrangian[1]), sqrt(sum((t(V) %*% theta)**2)))
     }
-
+    L_next <- sum(lagrangian)
     if (symmetrize) {
       V_next <- 0.5 * (V_next + t(V_next)) *
         (abs(V_next) > 1e-10 & abs(t(V_next)) > 1e-10)
@@ -222,12 +227,23 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     } else if(dual_resid_norm > mu*constraint_resid_norm){
       rho <- rho/tau
     }
+    delta_sign <- sign(L_next - L)
+    if(delta_sign == 1){
+      wrong_way <- wrong_way + 1
+    } else {
+      wrong_way <- 0
+    }
+
+    if(wrong_way >= max_wrong_way){
+      cat("L is inceasing, breaking and returning last U, V.\n")
+      break
+    }
+
 
     rmsd_u <- sqrt(mean((U - U_next)^2))
     rmsd_v <- sqrt(mean((V - V_next)^2))
     U <- U_next
     V <- V_next
-    L_next <- sum(lagrangian)
     L_delta <- abs(L_next - L) / L
     L <- L_next
     if (L_delta > delta_target) {
@@ -239,7 +255,7 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
     if (verbose) {
       # cat(iter, L, rho, constraint_resid_norm, non_constraint_resid_norm, dual_resid_norm, rmsd_u, rmsd_v, max_V, n_bad, bad_sum, max_U, n_bad_U, bad_sum_U,
       # L_delta, Sys.time() - start_time, "\n")
-      cat(iter, L, lagrangian[1], rho, constraint_resid_norm, non_constraint_resid_norm, dual_resid_norm, bad_sum, bad_sum_U, bad_sum_G, L1V, L2U, DU, L_delta, Sys.time() - start_time,"\n")
+      cat(iter, L, lagrangian[1], lagrangian[1] + lagrangian[2], delta_sign, rho, constraint_resid_norm, non_constraint_resid_norm, dual_resid_norm, bad_sum, bad_sum_U, bad_sum_G, L1V, L2U, DU, L_delta, Sys.time() - start_time,"\n")
     }
 
     # Converged if some iterations in a row have delta < target.
@@ -284,12 +300,14 @@ inspre_worker <- function(X, W = NULL, rho = 1.0, lambda = 0.01,
 #' @param ncores Integer, number of cores to use.
 #' @param warm_start Boolean, TRUE to start next fit with result of previous
 #'   fit. Default FALSE.
+#' @param constraint One of "UV" or "VU". Constraint to use.
+#' @param DAG Bool. True to resitrict solutions to approximate DAGs.
 fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
                                 its = 100, delta_target = 1e-4,
                                 symmetrize = FALSE, verbose = 1,
                                 gamma = 0.0, train_prop = 1.0,
                                 mu = 5, tau = 2.5, solve_its = 3, ncores = 1,
-                                warm_start = FALSE) {
+                                warm_start = FALSE, constraint = "UV", DAG = FALSE) {
   # Break the matrix into training and test sets, equally and at random.
   D <- nrow(X)
   if(is.null(gamma)){
@@ -335,7 +353,7 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
       X = X, W = train_W, lambda = lambda_i, rho = rho, warm_start = warm_start_res,
       its = its, delta_target = delta_target, symmetrize = symmetrize,
       verbose = (verbose == 2), gamma = gamma_i, mu = mu, tau = tau,
-      solve_its = solve_its, ncores = ncores)
+      solve_its = solve_its, ncores = ncores, constraint = constraint, DAG = DAG)
     if (verbose) {
       cat(sprintf(paste("Converged to L = %f in %d iterations for lambda = %f.",
                         " Time %f.",
@@ -403,13 +421,15 @@ fit_inspre_sequence <- function(X, lambda, W = NULL, rho = 1.0,
 #' @param ncores Integer, number of cores to use.
 #' @param warm_start Boolean, TRUE to start next fit with result of previous
 #'   fit. Default FALSE.
+#' @param constraint One of "UV" or "VU". Constraint to use.
+#' @param DAG Bool. True to resitrict solutions to approximate DAGs.
 #' @export
 inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
                    lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
                    gamma = NULL, its = 100, delta_target = 1e-4,
                    symmetrize = FALSE, verbose = 1, train_prop = 0.8,
                    cv_folds = 0, mu = 10, tau = 2, solve_its = 3, ncores = 1,
-                   warm_start = TRUE, min_nz = 1e-5) {
+                   warm_start = TRUE, min_nz = 1e-5, constraint = "UV", DAG = FALSE) {
   D <- ncol(X)
 
   if(any(is.na(X))){
@@ -420,7 +440,7 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
   }
 
   if (is.null(lambda)) {
-    lambda_max <- min(max(abs(off_diagonal(X)), na.rm = TRUE), 1.0)
+    lambda_max <- max(abs(off_diagonal(X)), na.rm = TRUE)
     lambda_min <- lambda_min_ratio * lambda_max
     lambda <- exp(seq(log(lambda_max), log(lambda_min), length.out = nlambda))
   }
@@ -438,7 +458,7 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
         X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
         symmetrize = symmetrize, verbose = verbose, gamma = 0, its = its,
         train_prop = 1.0, mu = mu, tau = tau, solve_its = solve_its,
-        ncores = ncores, warm_start = warm_start)$L
+        ncores = ncores, warm_start = warm_start, constraint = constraint, DAG = DAG)$L
 
       if(verbose){
         cat("Refitting with gamma = alpha * L / D. \n")
@@ -450,10 +470,10 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
     X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
     symmetrize = symmetrize, verbose = verbose, gamma = gamma, its = its,
     train_prop = 1.0, mu = mu, tau = tau, solve_its = solve_its,
-    ncores = ncores, warm_start = warm_start)
+    ncores = ncores, warm_start = warm_start, constraint = constraint, DAG = DAG)
 
   if (cv_folds > 0) {
-    xi_mat <- array(0, dim = c(D, D, length(lambda)))
+    xi_mat <- xi_mat <- array(0, dim = c(D, D, length(lambda)))
     error_matrix <- array(dim = c(cv_folds, length(lambda)))
     for (i in 1:cv_folds){
       if (verbose){
@@ -463,7 +483,7 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
         X = X, W = W, rho = rho, lambda = lambda, delta_target = delta_target,
         symmetrize = symmetrize, verbose = verbose, gamma = gamma,
         train_prop = train_prop, its = its, mu = mu, tau = tau,
-        solve_its = solve_its, ncores = ncores, warm_start = warm_start)
+        solve_its = solve_its, ncores = ncores, warm_start = warm_start, constraint = constraint, DAG = DAG)
       error_matrix[i, ] = cv_res$test_error
       V_nz <- abs(cv_res$V) > min_nz
       xi_mat <- xi_mat + V_nz
@@ -523,20 +543,22 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
 #' @param ncores Integer, number of cores to use.
 #' @param warm_start Logical. Whether to use previous lambda value result as
 #'   starting point for next fit.
+#' @param constraint One of "UV" or "VU". Constraint to use.
+#' @param DAG Bool. True to resitrict solutions to approximate DAGs.
 #' @export
-fit_inspre_from_R <- function(R_tce, W = NULL, rho = 10.0, lambda = NULL,
+fit_inspre_from_R <- function(R_tce, W = NULL, rho = 100.0, lambda = NULL,
                               lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
                               gamma = NULL, its = 100, delta_target = 1e-4,
                               verbose = 1, train_prop = 0.8,
-                              cv_folds = 0, mu = 10, tau = 2, solve_its = 3,
-                              ncores = 1, warm_start = TRUE, min_nz = 1e-5){
+                              cv_folds = 0, mu = 10, tau = 1.5, solve_its = 10,
+                              ncores = 1, warm_start = FALSE, min_nz = 1e-5, constraint = "UV", DAG = FALSE){
   D <- dim(R_tce)[1]
   inspre_res <- inspre::inspre(
     X = R_tce, W = W, rho = rho, lambda = lambda,
     lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
     gamma = gamma, its = its, delta_target = delta_target, symmetrize = FALSE,
     verbose = verbose, train_prop = train_prop, cv_folds = cv_folds, mu = mu,
-    tau = tau, solve_its = solve_its, ncores = ncores, warm_start = warm_start, min_nz = min_nz)
+    tau = tau, solve_its = solve_its, ncores = ncores, warm_start = warm_start, min_nz = min_nz, constraint = constraint, DAG = DAG)
   inspre_res$R_hat <- array(0L, dim = dim(inspre_res$V))
   for(i in 1:length(inspre_res$lambda)){
     inspre_res$R_hat[ , , i] <-
@@ -568,6 +590,73 @@ multiple_iv_reg <- function(target, .X, .targets){
   names(beta_hat) <- paste(names(beta_hat), "beta_hat", sep="_")
   names(se_hat) <- paste(names(se_hat), "se_hat", sep="_")
   return(as.data.frame(c(list(target = target, beta_obs = beta_inst_obs), as.list(c(beta_hat, se_hat)))))
+}
+
+
+multiple_iv_reg_dumb_row <- function(target, .X, .targets){
+  this_feature <- which(colnames(.X) == target)
+  # X <- cbind(.X[, this_feature], 1)
+  # Y <- .X[, -this_feature]
+  # Z <- cbind(.targets == target, 1)
+  rows <- .targets %in% c(target, "control")
+  X <- cbind(.X[rows, this_feature], 1)
+  Y <- .X[rows, -this_feature]
+  Z <- cbind(.targets == target, 1)[rows, ]
+
+  X_hat <- Z %*% solve(crossprod(Z), crossprod(Z, X))
+  beta_hat <- solve(crossprod(X_hat), crossprod(X_hat, Y))
+  u_hat <- Y - X %*% beta_hat
+  C <- colSums(u_hat**2)/nrow(X)
+  C <- C*solve(crossprod(X_hat))[1,1]
+  beta_se <- sqrt(C)
+
+  beta_hat <- append(beta_hat[1,], 1, after=this_feature-1)
+  beta_se <-append(beta_se, 0, after=this_feature-1)
+
+  names(beta_hat) <- paste(paste0("V", 1:D), "beta_hat", sep="_")
+  names(beta_se) <- paste(paste0("V", 1:D), "se_hat", sep="_")
+  return(as.data.frame(c(list(target = target, beta_obs = 0), as.list(c(beta_hat, beta_se)))))
+}
+
+multiple_iv_reg_dumb <- function(target, .X, .targets){
+  D = ncol(.X)
+  this_feature <- which(colnames(.X) == target)
+  X <- cbind(.X[, this_feature], 1)
+  Y <- .X[, -this_feature]
+  Z <- cbind(.targets == target, 1)
+
+  beta_obs <- solve(crossprod(Z), crossprod(Z, X))
+  X_hat <- Z %*% beta_obs
+  beta_hat <- solve(crossprod(X_hat), crossprod(X_hat, Y))
+  u_hat <- Y - X %*% beta_hat
+  C <- colSums(u_hat**2)/nrow(X)
+  C <- C*solve(crossprod(X_hat))[1,1]
+  beta_se <- sqrt(C)
+
+  beta_hat <- append(beta_hat[1,], 1, after=this_feature-1)
+  beta_se <-append(beta_se, 0, after=this_feature-1)
+
+  names(beta_hat) <- paste(paste0("V", 1:D), "beta_hat", sep="_")
+  names(beta_se) <- paste(paste0("V", 1:D), "se_hat", sep="_")
+  return(as.data.frame(c(list(target = target, beta_obs = beta_obs[1,1]), as.list(c(beta_hat, beta_se)))))
+}
+
+
+calc_inst_effect <- function(target, .X, .targets){
+  inst_obs <- .targets == target
+  control_obs <- .targets == "control"
+  n_target <- sum(inst_obs)
+  n_control <- sum(control_obs)
+  n_total <- n_target + n_control
+  this_feature <- which(colnames(.X) == target)
+  X_target <- .X[inst_obs, ]
+  X_control <- .X[control_obs, ]
+  X_exp_target <- X_target[, this_feature]
+  X_exp_control <- X_control[, this_feature]
+  Z <- c(rep(1, n_target), rep(0, n_control))
+  inst_effect <- cor(Z, c(X_exp_target, X_exp_control))
+  inst_se <- sqrt((1 - inst_effect**2)/(n_total - 2))
+  return(as.data.frame(list(target = target, inst_effect = inst_effect, inst_se = inst_se, n = n_total)))
 }
 
 
@@ -650,14 +739,17 @@ predict_inspre <- function(res, .X, .beta, .targets){
 #' @param ncores Integer, number of cores to use.
 #' @param warm_start Logical. Whether to use previous lambda value result as
 #'   starting point for next fit.
+#' @param constraint One of "UV" or "VU". Constraint to use.
+#' @param DAG Bool. True to resitrict solutions to approximate DAGs.
 #' @export
 fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
-                              rho = 10.0, lambda = NULL,
+                              rho = 100.0, lambda = NULL,
                               lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
                               gamma = NULL, its = 100, delta_target = 1e-4,
                               verbose = 1, train_prop = NULL,
-                              cv_folds = 0, mu = 10, tau = 2, solve_its = 10,
-                              ncores = 1, warm_start = FALSE, min_nz = 1e-5){
+                              cv_folds = 0, mu = 10, tau = 1.5, solve_its = 10,
+                              ncores = 1, warm_start = FALSE, min_nz = 1e-5, constraint = "UV", DAG = FALSE){
+  D <- ncol(X)
   target_names <- unique(targets)
   keep_features <- intersect(targets, colnames(X))
   keep_targets <- c(keep_features, "control")
@@ -677,6 +769,8 @@ fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
     filtered <- filter_tce(R_hat, SE_hat)
     R_hat <- filtered$R
     SE_hat <- filtered$SE
+    keep_rows <- rownames(R_hat)
+    keep_cols <- colnames(R_hat)
   }
   weights <- NULL
   if(!is.null(max_med_ratio)){
@@ -687,7 +781,7 @@ fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
                                 gamma = gamma, its = its, delta_target = delta_target,
                                 verbose = verbose, train_prop = 1,
                                 cv_folds = 0, mu = mu, tau = tau, solve_its = solve_its,
-                                ncores = ncores, warm_start = warm_start, min_nz = min_nz)
+                                ncores = ncores, warm_start = warm_start, min_nz = min_nz, constraint = constraint, DAG = DAG)
 
   if(cv_folds > 0){
     folds <- caret::createFolds(1:sum(keep_obs), k=cv_folds)
@@ -704,25 +798,27 @@ fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
       inst_effects <- purrr::map(keep_features, ~ multiple_iv_reg(.x, X_train, targets_train))  %>% purrr::list_rbind()
       beta_obs <- inst_effects$beta_obs
       names(beta_obs) <- inst_effects$target
-      R_hat <- data.matrix(dplyr::select(inst_effects, ends_with('beta_hat')) %>% dplyr::rename_with(~sub('_beta_hat', '', .x)))
-      SE_hat <- data.matrix(dplyr::select(inst_effects, ends_with('se_hat')) %>% dplyr::rename_with(~sub('_se_hat', '', .x)))
-      rownames(R_hat) <- inst_effects$target
-      rownames(SE_hat) <- inst_effects$target
+      R_hat_cv <- data.matrix(dplyr::select(inst_effects, ends_with('beta_hat')) %>% dplyr::rename_with(~sub('_beta_hat', '', .x)))
+      SE_hat_cv <- data.matrix(dplyr::select(inst_effects, ends_with('se_hat')) %>% dplyr::rename_with(~sub('_se_hat', '', .x)))
+      rownames(R_hat_cv) <- inst_effects$target
+      rownames(SE_hat_cv) <- inst_effects$target
       if(filter){
-        filtered <- filter_tce(R_hat, SE_hat)
-        R_hat <- filtered$R
-        SE_hat <- filtered$SE
+        R_hat_cv <- R_hat_cv[keep_rows, keep_cols]
+        SE_hat_cv <- SE_hat_cv[keep_rows, keep_cols]
+        filtered <- filter_tce(R_hat_cv, SE_hat_cv, max_nan_perc = 1)
+        R_hat_cv <- filtered$R
+        SE_hat_cv <- filtered$SE
       }
       weights <- NULL
       if(!is.null(max_med_ratio)){
-        weights <- inspre::make_weights(SE_hat, max_med_ratio = max_med_ratio)
+        weights <- inspre::make_weights(SE_hat_cv, max_med_ratio = max_med_ratio)
       }
-      cv_res <- fit_inspre_from_R(R_hat, W = weights, rho = rho, lambda = lambda,
+      cv_res <- fit_inspre_from_R(R_hat_cv, W = weights, rho = rho, lambda = lambda,
                                   lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
                                   gamma = gamma, its = its, delta_target = delta_target,
                                   verbose = verbose, train_prop = 1,
                                   cv_folds = 0, mu = mu, tau = tau, solve_its = solve_its,
-                                  ncores = ncores, warm_start = warm_start, min_nz = min_nz)
+                                  ncores = ncores, warm_start = warm_start, min_nz = min_nz, constraint = constraint, DAG = DAG)
       V_nz <- abs(cv_res$V) > min_nz
       xi_mat <- xi_mat + V_nz
       X_test <- X[fold, ]
@@ -755,10 +851,15 @@ fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
 #' @param min_edge_value Minimum edge strength for pruning.
 #' @param max_edge_value Set edges above this number to this.
 #' @export
-make_igraph <- function(R_cde, min_edge_value = 0.01, max_edge_value = 0.999){
+make_igraph <- function(R_cde, min_edge_value = 0.01, max_edge_value = NULL, scale_factor = NULL){
   adj_matrix <- R_cde
   adj_matrix[abs(adj_matrix) < min_edge_value] = 0
-  adj_matrix[abs(adj_matrix) > max_edge_value] = max_edge_value
+  if(!is.null(max_edge_value)){
+    adj_matrix[abs(adj_matrix) > max_edge_value] = max_edge_value
+  }
+  if(!is.null(scale_factor)){
+    adj_matrix <- adj_matrix/scale_factor
+  }
   zeros <- adj_matrix == 0
   adj_matrix <- -log(abs(adj_matrix))
   adj_matrix[zeros] = 0

@@ -1,2 +1,5 @@
 ^inspre\.Rproj$
 ^\.Rproj\.user$
+^Rmd\/_rslurm
+^.Rdata$
+^Rmd/.Rdata$

@@ -19,7 +19,8 @@ inspre_worker(
   tau = 1.5,
   solve_its = 3,
   ncores = 1,
-  constraint = "UV"
+  constraint = "UV",
+  DAG = FALSE
 )
 }
 \arguments{
@@ -56,6 +57,10 @@ increased/decreased by the factor tau.}
 for each U and V update.}
 
 \item{ncores}{Integer, number of cores to use.}
+
+\item{constraint}{One of "UV" or "VU". Constraint to use.}
+
+\item{DAG}{Bool. True to resitrict solutions to approximate DAGs.}
 }
 \description{
 Worker function to fit inspre for a single value of lambda.

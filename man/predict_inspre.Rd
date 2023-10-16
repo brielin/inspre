@@ -4,7 +4,7 @@
 \alias{predict_inspre}
 \title{Calculates model predictions given new data, with cross-validation errors.}
 \usage{
-predict_inspre(res, X, beta)
+predict_inspre(res, .X, .beta, .targets)
 }
 \arguments{
 \item{res}{Inspre result. Result of running fit_inspre for a single or

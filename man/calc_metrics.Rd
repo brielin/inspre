@@ -4,7 +4,7 @@
 \alias{calc_metrics}
 \title{Calculates metrics for model evaluation.}
 \usage{
-calc_metrics(X, X_true, eps = 1e-10)
+calc_metrics(X, X_true, eps = 1e-08)
 }
 \arguments{
 \item{X}{DxD matrix of predicted parameters.}

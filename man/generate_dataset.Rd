@@ -8,15 +8,12 @@ generate_dataset(
   D,
   N_cont,
   N_int,
-  size = N_int/10,
-  int_r2 = 0.1,
-  int_dir = "negative",
-  graph = "scale-free",
-  v_mode = 0.2,
-  v_max = 0.8,
-  v_min = 0.05,
+  int_beta = -2,
+  graph = "scalefree",
+  v = 0.2,
+  p = 0.4,
   DAG = FALSE,
-  confounding = 0,
+  C = floor(0.1 * D),
   noise = "gaussian",
   model = "inspre"
 )
@@ -28,6 +25,17 @@ generate_dataset(
 
 \item{N_int}{Integer. Mean of number of intervention samples to simulate per node.}
 
+\item{graph}{String. One of 'scalefree' or 'random'. Type of network
+to simulate.}
+
+\item{DAG}{Bool. TRUE to ensure the returned graph is a DAG.}
+
+\item{C}{Integer. Number of fully connected confounding nodes to simulate.}
+
+\item{noise}{String. Noise model to simulate, currently just "gaussian".}
+
+\item{model}{Data generating model. One of "inspre" or "dotears".}
+
 \item{size}{Float. Size parameter for NB distribution for int samples.}
 
 \item{int_r2}{Float. Mean variance in node explained by intervention.}
@@ -35,22 +43,11 @@ generate_dataset(
 \item{int_dir}{string. 'positive', 'negative', or 'both'. Direction of
 effect of intervention on node.}
 
-\item{graph}{String. One of 'scale-free' or 'random'. Type of network
-to simulate.}
-
 \item{v_mode}{Float. Mode of the pert distribution.}
-
-\item{v_max}{Float. Max of the pert distribuion.}
 
 \item{v_min}{Float. Min of the pert distribution.}
 
-\item{DAG}{Bool. TRUE to ensure the returned graph is a DAG.}
-
-\item{noise}{String. Noise model to simulate, currently just "gaussian".}
-
-\item{model}{Data generating model. One of "inspre" or "dotears".}
-
-\item{confoudning}{Float >= 0. Proportion of nodes to "hide" to simulate confounding.}
+\item{v_max}{Float. Max of the pert distribuion.}
 }
 \description{
 Simulates a graph-intervention dataset with corresponding graph.

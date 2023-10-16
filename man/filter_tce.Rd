@@ -4,7 +4,7 @@
 \alias{filter_tce}
 \title{Helper function to do basic filtering of the TCE matrix.}
 \usage{
-filter_tce(R_tce, SE_tce, max_R = 1, max_SE = 0.5, max_nan_perc = 0.5)
+filter_tce(R_tce, SE_tce, max_R = 2, max_SE = 1, max_nan_perc = 0.5)
 }
 \arguments{
 \item{R_tce}{Matrix or data.frame. Estimates of TCE.}

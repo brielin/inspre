@@ -19,7 +19,9 @@ fit_inspre_sequence(
   tau = 2.5,
   solve_its = 3,
   ncores = 1,
-  warm_start = FALSE
+  warm_start = FALSE,
+  constraint = "UV",
+  DAG = FALSE
 )
 }
 \arguments{
@@ -62,6 +64,10 @@ for each U and V update.}
 
 \item{warm_start}{Boolean, TRUE to start next fit with result of previous
 fit. Default FALSE.}
+
+\item{constraint}{One of "UV" or "VU". Constraint to use.}
+
+\item{DAG}{Bool. True to resitrict solutions to approximate DAGs.}
 }
 \description{
 Fits inspre model for sequence of lambda values.

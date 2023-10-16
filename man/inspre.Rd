@@ -24,7 +24,9 @@ inspre(
   solve_its = 3,
   ncores = 1,
   warm_start = TRUE,
-  min_nz = 1e-05
+  min_nz = 1e-05,
+  constraint = "UV",
+  DAG = FALSE
 )
 }
 \arguments{
@@ -81,6 +83,10 @@ for each U and V update.}
 
 \item{warm_start}{Boolean, TRUE to start next fit with result of previous
 fit. Default FALSE.}
+
+\item{constraint}{One of "UV" or "VU". Constraint to use.}
+
+\item{DAG}{Bool. True to resitrict solutions to approximate DAGs.}
 }
 \description{
 Finds the inverse of X using Inverse Sparse Regression.

@@ -8,11 +8,18 @@ License: file LICENSE
 Encoding: UTF-8
 LazyData: true
 Suggests:
-    huge,
-    testthat,
-    egg,
-    devtools
-RoxygenNote: 7.1.1
+    hdf5r,
+    caret,
+    ggplot2,
+    tidyr,
+    tibble,
+    igraph,
+    ggupset,
+    betareg,
+    readr,
+    pcalg,
+    rslurm
+RoxygenNote: 7.2.3
 LinkingTo: 
     Rcpp,
     RcppEigen

@@ -4,7 +4,12 @@
 \alias{make_igraph}
 \title{Creates an igraph from CDE matrix.}
 \usage{
-make_igraph(R_cde, min_edge_value = 0.01, max_edge_value = 0.999)
+make_igraph(
+  R_cde,
+  min_edge_value = 0.01,
+  max_edge_value = NULL,
+  scale_factor = NULL
+)
 }
 \arguments{
 \item{R_cde}{Matrix of causal effects.}
