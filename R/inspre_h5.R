@@ -285,6 +285,7 @@ predict_inspre_inv_h5X <- function(res, X, beta, X_targets, X_vars, vars_to_use 
 #' @param DAG Bool. True to resitrict solutions to approximate DAGs.
 #' @export
 fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
+                                weighted = TRUE,
                                 max_med_ratio = NULL, filter = TRUE,
                                 rho = 100.0, lambda = NULL,
                                 lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
@@ -314,11 +315,12 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
   }
   D <- ncol(R_hat)
 
-  weights <- NULL
-  if(!is.null(max_med_ratio)){
-    weights <- inspre::make_weights(SE_hat, max_med_ratio = max_med_ratio)
+  if(weighted){
+    W <- inspre::make_weights(SE_hat, max_med_ratio = max_med_ratio)
+  } else{
+    W <- NULL
   }
-  full_res <- fit_inspre_from_R(R_hat, W = weights, rho = rho, lambda = lambda,
+  full_res <- fit_inspre_from_R(R_hat, W = W, rho = rho, lambda = lambda,
                                 lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
                                 gamma = gamma, its = its, delta_target = delta_target,
                                 verbose = verbose, train_prop = 1,
@@ -363,11 +365,12 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
         R_hat_cv <- filtered$R
         SE_hat_cv <- filtered$SE
       }
-      weights <- NULL
-      if(!is.null(max_med_ratio)){
-        weights <- inspre::make_weights(SE_hat_cv, max_med_ratio = max_med_ratio)
+      if(weighted){
+        W_cv <- inspre::make_weights(SE_hat_cv, max_med_ratio = max_med_ratio)
+      } else{
+        W_cv <- NULL
       }
-      cv_res <- fit_inspre_from_R(R_hat_cv, W = weights, rho = rho, lambda = lambda,
+      cv_res <- fit_inspre_from_R(R_hat_cv, W = W_cv, rho = rho, lambda = lambda,
                                   lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
                                   gamma = gamma, its = its, delta_target = delta_target,
                                   verbose = verbose, train_prop = 1,
@@ -444,5 +447,6 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
   full_res$G_hat <- full_res$R_hat
   full_res$R_hat <- R_hat
   full_res$SE_hat <- SE_hat
+  full_res$W <-
   return(full_res)
 }

@@ -7,6 +7,7 @@
 fit_inspre_from_X(
   X,
   targets,
+  weighted = TRUE,
   max_med_ratio = NULL,
   filter = TRUE,
   rho = 100,
@@ -36,8 +37,18 @@ names. Rownames also correspond to feature names indicating an intervention
 was applied to that feature in that sample, with "control" indicating
 no intervention.}
 
-\item{max_med_ratio}{Float or NULL. Passed through to `make_weights`, NULL
-for no weights.}
+\item{targets}{sequence of strings of length total number of observations
+(rows in X). Entries are either "control" to indicate no intervention
+or the name of a column in`X` to indicate the intervened on variable.}
+
+\item{weighted}{Boolean. TRUE to calculate weights from SEs and use them,
+FALSE for unweighted. Default TRUE.}
+
+\item{max_med_ratio}{Float or NULL. Ignored if `weight=FALSE`. If
+`weight=TRUE`, this is the ratio of the maximum weight to median weight.
+`NULL` for no restriction on the ratio. This can be useful to set
+if you have some entries with very small standard error, to prevent the
+algorithm from focusing exclusively on the entries with very small SE.}
 
 \item{filter}{Bool. True to filter the produced TCE matrix with `fitler_tce`.}
 
@@ -89,7 +100,9 @@ starting point for next fit.}
 
 \item{constraint}{One of "UV" or "VU". Constraint to use.}
 
-\item{DAG}{Bool. True to resitrict solutions to approximate DAGs.}
+\item{DAG}{Bool. True to restrict solutions to approximate DAGs. Useful to
+set to TRUE if you are having convergence issues with `DAG=FALSE` as the
+more restricted model can be easier to fit.}
 }
 \description{
 See also inspre::inspre() for more details.

@@ -706,8 +706,16 @@ predict_inspre <- function(res, .X, .beta, .targets){
 #'   names. Rownames also correspond to feature names indicating an intervention
 #'   was applied to that feature in that sample, with "control" indicating
 #'   no intervention.
-#' @param max_med_ratio Float or NULL. Passed through to `make_weights`, NULL
-#'   for no weights.
+#' @param targets sequence of strings of length total number of observations
+#'   (rows in X). Entries are either "control" to indicate no intervention
+#'   or the name of a column in`X` to indicate the intervened on variable.
+#' @param weighted Boolean. TRUE to calculate weights from SEs and use them,
+#'   FALSE for unweighted. Default TRUE.
+#' @param max_med_ratio Float or NULL. Ignored if `weight=FALSE`. If
+#'   `weight=TRUE`, this is the ratio of the maximum weight to median weight.
+#'   `NULL` for no restriction on the ratio. This can be useful to set
+#'   if you have some entries with very small standard error, to prevent the
+#'   algorithm from focusing exclusively on the entries with very small SE.
 #' @param filter Bool. True to filter the produced TCE matrix with `fitler_tce`.
 #' @param rho Float. Initial learning rate for ADMM.
 #' @param lambda Float, sequence of floats of NULL. L1 regularization strength
@@ -740,9 +748,11 @@ predict_inspre <- function(res, .X, .beta, .targets){
 #' @param warm_start Logical. Whether to use previous lambda value result as
 #'   starting point for next fit.
 #' @param constraint One of "UV" or "VU". Constraint to use.
-#' @param DAG Bool. True to resitrict solutions to approximate DAGs.
+#' @param DAG Bool. True to restrict solutions to approximate DAGs. Useful to
+#'   set to TRUE if you are having convergence issues with `DAG=FALSE` as the
+#'   more restricted model can be easier to fit.
 #' @export
-fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
+fit_inspre_from_X <- function(X, targets, weighted = TRUE, max_med_ratio = NULL, filter = TRUE,
                               rho = 100.0, lambda = NULL,
                               lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
                               gamma = NULL, its = 100, delta_target = 1e-4,
@@ -772,11 +782,13 @@ fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
     keep_rows <- rownames(R_hat)
     keep_cols <- colnames(R_hat)
   }
-  weights <- NULL
-  if(!is.null(max_med_ratio)){
-    weights <- inspre::make_weights(SE_hat, max_med_ratio = max_med_ratio)
+  if(weighted){
+    W <- inspre::make_weights(SE_hat, max_med_ratio = max_med_ratio)
+  } else{
+    W <- NULL
   }
-  full_res <- fit_inspre_from_R(R_hat, W = weights, rho = rho, lambda = lambda,
+
+  full_res <- fit_inspre_from_R(R_hat, W = W, rho = rho, lambda = lambda,
                                 lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
                                 gamma = gamma, its = its, delta_target = delta_target,
                                 verbose = verbose, train_prop = 1,
@@ -809,11 +821,12 @@ fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
         R_hat_cv <- filtered$R
         SE_hat_cv <- filtered$SE
       }
-      weights <- NULL
-      if(!is.null(max_med_ratio)){
-        weights <- inspre::make_weights(SE_hat_cv, max_med_ratio = max_med_ratio)
+      if(weighted){
+        W_cv <- inspre::make_weights(SE_hat_cv, max_med_ratio = max_med_ratio)
+      } else{
+        W_cv <- NULL
       }
-      cv_res <- fit_inspre_from_R(R_hat_cv, W = weights, rho = rho, lambda = lambda,
+      cv_res <- fit_inspre_from_R(R_hat_cv, W = W_cv, rho = rho, lambda = lambda,
                                   lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
                                   gamma = gamma, its = its, delta_target = delta_target,
                                   verbose = verbose, train_prop = 1,
@@ -841,6 +854,12 @@ fit_inspre_from_X <- function(X, targets, max_med_ratio = NULL, filter = TRUE,
     full_res$eps_hat_G <- eps_hat_G
     full_res$eps_hat_I <- eps_hat_I
   }
+
+  # Hack until I have time to change all these variable names.
+  full_res$G_hat <- full_res$R_hat
+  full_res$R_hat <- R_hat
+  full_res$SE_hat <- SE_hat
+  full_res$W <- W
   return(full_res)
 }
 

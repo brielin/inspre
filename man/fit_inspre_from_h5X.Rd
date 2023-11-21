@@ -10,6 +10,7 @@ fit_inspre_from_h5X(
   X_ids,
   X_vars,
   targets,
+  weighted = TRUE,
   max_med_ratio = NULL,
   filter = TRUE,
   rho = 100,
