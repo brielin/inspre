@@ -2,6 +2,7 @@
 #' @useDynLib inspre, .registration = TRUE
 #' @importFrom Rcpp sourceCpp
 #' @import RcppEigen
+#' @import expm
 ## usethis namespace: end
 NULL
 
@@ -429,7 +430,7 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
                    gamma = NULL, its = 100, delta_target = 1e-4,
                    symmetrize = FALSE, verbose = 1, train_prop = 0.8,
                    cv_folds = 0, mu = 10, tau = 2, solve_its = 3, ncores = 1,
-                   warm_start = TRUE, min_nz = 1e-5, constraint = "UV", DAG = FALSE) {
+                   warm_start = TRUE, min_nz = 0.01, constraint = "UV", DAG = FALSE) {
   D <- ncol(X)
 
   if(any(is.na(X))){
@@ -551,7 +552,7 @@ fit_inspre_from_R <- function(R_tce, W = NULL, rho = 100.0, lambda = NULL,
                               gamma = NULL, its = 100, delta_target = 1e-4,
                               verbose = 1, train_prop = 0.8,
                               cv_folds = 0, mu = 10, tau = 1.5, solve_its = 10,
-                              ncores = 1, warm_start = FALSE, min_nz = 1e-5, constraint = "UV", DAG = FALSE){
+                              ncores = 1, warm_start = FALSE, min_nz = 0.01, constraint = "UV", DAG = FALSE){
   D <- dim(R_tce)[1]
   inspre_res <- inspre::inspre(
     X = R_tce, W = W, rho = rho, lambda = lambda,
@@ -660,6 +661,15 @@ calc_inst_effect <- function(target, .X, .targets){
 }
 
 
+calc_tce_ko <- function(.X, .targets){
+  # Normalize by control mean/sd
+  .X_cont <- .X[.targets=="control",]
+  mu_cont <- colMeans(.X_cont)
+  sd_cont <- apply(.X_cont, 2, sd)
+  .X <-t((t(.X) - mu_cont)/sd_cont)
+}
+
+
 #' Calculates model predictions given new data, with cross-validation errors.
 #'
 #' This function uses the mean((X - XG - ZB)**2) error formulation.
@@ -748,7 +758,7 @@ predict_inspre <- function(res, .X, .beta, .targets){
 #' @param warm_start Logical. Whether to use previous lambda value result as
 #'   starting point for next fit.
 #' @param constraint One of "UV" or "VU". Constraint to use.
-#' @param DAG Bool. True to restrict solutions to approximate DAGs. Useful to
+#' @param DAG Bool. True_to restrict solutions to approximate DAGs. Useful to
 #'   set to TRUE if you are having convergence issues with `DAG=FALSE` as the
 #'   more restricted model can be easier to fit.
 #' @export
@@ -758,7 +768,7 @@ fit_inspre_from_X <- function(X, targets, weighted = TRUE, max_med_ratio = NULL,
                               gamma = NULL, its = 100, delta_target = 1e-4,
                               verbose = 1, train_prop = NULL,
                               cv_folds = 0, mu = 10, tau = 1.5, solve_its = 10,
-                              ncores = 1, warm_start = FALSE, min_nz = 1e-5, constraint = "UV", DAG = FALSE){
+                              ncores = 1, warm_start = FALSE, min_nz = 0.01, constraint = "UV", DAG = FALSE){
   D <- ncol(X)
   target_names <- unique(targets)
   keep_features <- intersect(targets, colnames(X))
@@ -884,4 +894,62 @@ make_igraph <- function(R_cde, min_edge_value = 0.01, max_edge_value = NULL, sca
   adj_matrix[zeros] = 0
   return(igraph::graph_from_adjacency_matrix(
     adj_matrix, mode = "directed", weighted = TRUE))
+}
+
+
+#' Approximates(I-G)^-1 by truncated sum I + G + G%^%2 + ...
+#'
+#' @param G D x D graph
+#' @param k Integer. Number of powers to use to approximate the inverse
+#' @param keep Bool. Default TRUE to keep each power for downstream computation
+approx_ImGi <- function(G, k, keep = TRUE) {
+  D <- nrow(G)
+  G_powers <- array(0L, dim = c(D, D, k))
+  A <- array(0L, dim = c(D, D, k))
+  G_powers[,,1] <- diag(D)
+  A[,,1] <- diag(D)
+  for(i in 2:k){
+    G_powers[,,i] <- G_powers[,,i-1] %*% G
+    A[,,i] <- A[,,i-1] + G_powers[,,i]
+  }
+
+  if(keep){
+    return(A)
+  } else {
+    return(A[,,k])
+  }
+}
+
+
+#' Estimates noise variances given graph and node variances.
+#'
+#' Can use H = (I-G)^-1 or an approximation H = I + G + G%^%2 + ...
+#'
+#' @param H D x D matrix.
+#' @param v D-vector of floats. Total variance of each node.
+#' @param non_neg Boolean. True to use non-negative least squares instead
+#'   of exact solution. Default FALSE.
+est_noise_var <- function(H, v, non_neg = FALSE){
+  D <- nrow(H)
+  mat <- t((H - diag(D))**2) + diag(D) +2*diag(diag(H-diag(D)))
+  if(non_neg){
+    s2 <- nnls::nnls(mat, v)$x
+  } else{
+    s2 <- solve(mat, v)
+  }
+
+  return(s2)
+}
+
+
+#' Estimates total variance explained in and by each gene.
+#'
+#' @param H DxD matrix.
+#' @param s2 D-vector. Noise variance of each node.
+#' @param v D-vector. Total variance of each node.
+est_exp_var <- function(H, s2, v){
+  B2_adj <- t(t(((H-diag(D))**2)*s2)/v)
+  var_exp_in <- colSums(B2_adj)
+  var_exp_by <- rowSums(B2_adj)
+  return(list(var_exp_in = var_exp_in, var_exp_by = var_exp_by))
 }

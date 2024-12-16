@@ -19,7 +19,8 @@ NULL
 parse_hdf5_df <- function(hfile, entry = "obs"){
   colnames <- names(hfile[[entry]])
 
-  cat_vals = NULL
+  cat_vals <- NULL
+  # The Replogle GWPS has categories on the top level for all entries
   if('__categories' %in% colnames){
     cat_names = names(hfile[[entry]][['__categories']])
     get_cat <- function(cat_name){
@@ -34,15 +35,27 @@ parse_hdf5_df <- function(hfile, entry = "obs"){
   get_col <- function(name){
     if(name %in% names(cat_vals)){
       indices = hfile[[entry]][[name]][]
-      map = cat_vals[[name]]
-      values = map[indices+1]  # Yay, R! :'[
+      values = cat_vals[[name]][indices+1]  # Yay, R! :'[
+    }
+    else if('categories' %in% names(hfile[[entry]][[name]])){
+      tryCatch({
+        cat_vals[[name]] = hfile[[entry]][[name]][['categories']][]
+      }, warning = function(cond){print(name)})
+
+      indices = hfile[[entry]][[name]][["codes"]][]
+      values = cat_vals[[name]][indices + 1]
     }
     else{
-      values = hfile[[entry]][[name]][]
+      values <- tryCatch({
+        hfile[[entry]][[name]][]
+      }, error = function(cond){
+        print('test')
+        paste0('Error processing entry ', name, ', returning NA.')
+        NA
+      })
     }
     return(values)
   }
-
   df <- as.data.frame(lapply(colnames, get_col))
   names(df) <- colnames
   return(df)
@@ -148,7 +161,7 @@ calc_inst_effect_h5X <- function(inst_id, target, X, X_control, X_ids, X_vars){
 #'   NULL to keep all.
 #' @param obs_to_use Sequence of bools. Indicator of columns of X to use in calculations.
 #'   Useful for cross validation. NULL to keep all.
-predict_inspre_G_h5X <- function(res, X, X_ntc, beta, X_targets, X_vars,
+predict_inspre_G_h5X <- function(res, X, X_control, beta, X_targets, X_vars,
                                  vars_to_use = NULL, obs_to_use = NULL){
   if(is.null(vars_to_use)){
     keep_vars <- rep(TRUE, length(X_vars))
@@ -162,9 +175,9 @@ predict_inspre_G_h5X <- function(res, X, X_ntc, beta, X_targets, X_vars,
   obs_to_use <- obs_to_use & (X_targets %in% X_vars[keep_vars])
   ZB <- outer(X_vars[keep_vars], X_targets[obs_to_use], "==")
   ZB <- ZB * beta
-  ZB <- cbind(ZB, matrix(0, nrow=nrow(ZB), ncol=ncol(X_ntc)))
+  ZB <- cbind(ZB, matrix(0, nrow=nrow(ZB), ncol=ncol(X_control)))
 
-  data <- cbind(X[keep_vars, obs_to_use], X_ntc[keep_vars,])
+  data <- cbind(X[keep_vars, obs_to_use], X_control[keep_vars,])
   X_hat <- array(0L, dim = c(dim(data), length(res$lambda)))
   eps_hat <- vector("numeric", length(res$lambda))
   for(i in 1:length(res$lambda)){
@@ -296,7 +309,7 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
   X_targets = map(X_ids, ~ targets[[.x]])
   if(verbose){cat("Fitting model with full dataset\n")}
   inst_effects <- map2(names(targets), targets, ~ multiple_iv_reg_h5X(
-    .x, .y, X, X_ntc, X_ids, X_vars, targets)) %>% list_rbind()
+    .x, .y, X, X_control, X_ids, X_vars, targets)) %>% list_rbind()
   beta_obs <- inst_effects$beta_obs
   names(beta_obs) <- inst_effects$inst_id
   R_hat <- data.matrix(select(inst_effects, ends_with('beta_hat')) %>%
@@ -347,7 +360,7 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
       train_obs_all <- !(1:length(X_ids) %in% fold_all)
       train_obs_control <-!(1:ncol(X_control) %in% fold_control)
       inst_effects <- map2(names(targets), targets, ~ multiple_iv_reg_h5X(
-        .x, .y, X, X_ntc[, train_obs_control], X_ids, X_vars, targets, train_obs_all)) %>% list_rbind()
+        .x, .y, X, X_control[, train_obs_control], X_ids, X_vars, targets, train_obs_all)) %>% list_rbind()
       beta_obs <- inst_effects$beta_obs
       names(beta_obs) <- inst_effects$inst_id
       R_hat_cv <- data.matrix(dplyr::select(inst_effects, ends_with('beta_hat')) %>%
@@ -383,7 +396,7 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
       test_obs_all <- 1:length(X_ids) %in% fold_all
       test_obs_control <- 1:ncol(X_control) %in% fold_control
 
-      eps_G <- predict_inspre_G_h5X(cv_res, X, X_ntc[,test_obs_control], beta_obs,
+      eps_G <- predict_inspre_G_h5X(cv_res, X, X_control[,test_obs_control], beta_obs,
                                     X_targets, X_vars, targets, test_obs_all)
       beta_test <- beta_obs
       names(beta_test) <- inst_effects$target
@@ -394,7 +407,7 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
       test_obs_all <- (1:length(X_ids) %in% fold_all)
       test_obs_control <-(1:ncol(X_control) %in% fold_control)
       inst_effects_te <- map2(names(targets), targets, ~ multiple_iv_reg_h5X(
-        .x, .y, X, X_ntc[, test_obs_control], X_ids, X_vars, targets, test_obs_all)) %>% list_rbind()
+        .x, .y, X, X_control[, test_obs_control], X_ids, X_vars, targets, test_obs_all)) %>% list_rbind()
       beta_obs_te <- inst_effects_te$beta_obs
       names(beta_obs_te) <- inst_effects_te$inst_id
       R_hat_te <- data.matrix(dplyr::select(inst_effects_te, ends_with('beta_hat')) %>%
@@ -416,7 +429,7 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
         weights_te <- inspre::make_weights(SE_hat_te, max_med_ratio = max_med_ratio)
       }
       eps_Rte <- unlist(purrr::map(1:length(full_res$lambda), ~ mean((weights_te * (cv_res$U[,,.x] - R_hat_te))**2, na.rm=T)))
-      eps_Rtr <- unlist(purrr::map(1:length(full_res$lambda), ~ mean((weights * (cv_res$U[,,.x] - R_hat_te))**2, na.rm=T)))
+      eps_Rtr <- unlist(purrr::map(1:length(full_res$lambda), ~ mean((W_cv * (cv_res$U[,,.x] - R_hat_cv))**2, na.rm=T)))
       ##
 
       eps_hat_G <- eps_hat_G + eps_G
@@ -447,6 +460,6 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
   full_res$G_hat <- full_res$R_hat
   full_res$R_hat <- R_hat
   full_res$SE_hat <- SE_hat
-  full_res$W <-
+  full_res$W <- W
   return(full_res)
 }

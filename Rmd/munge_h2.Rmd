@@ -1,0 +1,58 @@
+```{r}
+require(readr)
+require(dplyr)
+require(ggplot2)
+```
+
+
+```{r}
+gwps_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
+gwps_gene_data = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gene_data.Rdata'
+gwps_graph_data = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_graph_data.Rdata'
+
+cish2_fn <- '/gpfs/commons/groups/knowles_lab/gwps/data/INTERVAL_h2_cis.tsv'
+gwh2_fn <- '/gpfs/commons/groups/knowles_lab/gwps/data/INTERVAL_h2_trans.tsv'
+```
+
+
+```{r}
+load(gwps_guide_res)
+load(gwps_gene_data)
+load(gwps_graph_data)
+cish2 <- readr::read_tsv(cish2_fn)
+gwh2 <- readr::read_tsv(gwh2_fn)
+```
+
+
+```{r}
+# debugging, for Alex
+missing_cis <- gene_data %>% dplyr::filter(!(gene %in% cish2$Gene)) %>% select(gene, gene_name, cv, mean, std)
+missing_trans <- gene_data %>% dplyr::filter(!(gene %in% gwh2$Gene)) %>% select(gene, gene_name, cv, mean, std)
+
+readr::write_csv(missing_cis, file = '/gpfs/commons/groups/knowles_lab/atokolyi/missing_genes_cis.csv')
+readr::write_csv(missing_trans, file = '/gpfs/commons/groups/knowles_lab/atokolyi/missing_genes_trans.csv')
+```
+
+
+```{r}
+in_all <- intersect(gene_data$gene, intersect(cish2$Gene, gwh2$Gene))
+cish2 <- cish2 %>% dplyr::filter(Gene %in% in_all)
+gwh2 <- gwh2 %>% dplyr::filter(Gene %in% in_all)
+
+cis_trans <- cish2 %>% dplyr::select(Gene, VG_Vp) %>% dplyr::rename(cis_h2 = VG_Vp)
+cis_trans$gw_h2 <- gwh2$VG_Vp
+# "trans_h2" here is assuming no covariance between cis and gw estimates. Slightly inaccurate.
+cis_trans <- cis_trans %>% dplyr::mutate(trans_h2 = gw_h2 - cis_h2, cis_gw_ratio = cis_h2/gw_h2)
+```
+
+
+```{r}
+cis_trans %>% ggplot(aes(x=cis_h2)) + geom_density()
+cis_trans %>% ggplot(aes(x=trans_h2)) + geom_density()
+cis_trans %>% ggplot(aes(x=gw_h2)) + geom_density()
+cis_trans %>% ggplot(aes(x=cis_gw_ratio)) + geom_density() + xlim(-0.1, 1)
+```
+
+```{r}
+readr::write_csv(cis_trans, file="/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/cis_trans.csv")
+```

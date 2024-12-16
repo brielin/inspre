@@ -1,4 +1,4 @@
-#!/usr/bin/env /nfs/sw/R/R-4.2.1/lib64/R/bin/Rscript
+#!/usr/bin/env /nfs/sw/R/R-4.2.3/lib64/R/bin/Rscript
 
 require(hdf5r)
 require(dplyr)
@@ -6,10 +6,15 @@ require(purrr)
 require(inspre)
 
 ncores=16
-k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_essential_normalized_singlecell_01.h5ad'
-save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_dag.Rdata'
-save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_nodag.Rdata'
-save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
+# k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_essential_normalized_singlecell_01.h5ad'
+# save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_dag.Rdata'
+# save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_nodag.Rdata'
+# save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
+k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_gwps_normalized_singlecell_01.h5ad'
+save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_dag.Rdata'
+save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_nodag.Rdata'
+save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_guide_data.Rdata'
+
 
 # At some point this gets auto-converted to 'non.targeting' by R...
 ntc = 'non-targeting'
@@ -18,8 +23,8 @@ ntc = 'non-targeting'
 process_start <- Sys.time()
 cat("Loading files.\n")
 hfile_sc <- H5File$new(k562_norm_sc_fn, "r")
-obs <- parse_hdf5_df(hfile_sc, 'obs')
-var <- parse_hdf5_df(hfile_sc, 'var')
+obs <- inspre::parse_hdf5_df(hfile_sc, 'obs')
+var <- inspre::parse_hdf5_df(hfile_sc, 'var')
 
 # Load NTC into memory.
 cat("Finding and loading NTC guides.\n")

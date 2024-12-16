@@ -104,6 +104,7 @@ res_all %>% filter(DAG == "FALSE", confounding == "True", density=="High", effec
         legend.key.size = unit(0.35, 'cm')) +
   scale_colour_brewer(palette = "Paired") +
   facet_grid(graph ~ instruments, labeller = labeller(instruments=facet1_names, graph=facet2_names))
+ggsave("plots/sim_table.png")
 ```
 
 

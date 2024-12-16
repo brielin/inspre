@@ -149,7 +149,23 @@ censor_dataset <- function(dataset, p){
 }
 
 
-generate_data_inspre <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian'){
+generate_data_knockout <- function(G, N_cont, N_int, noise='gaussian'){
+  D <- nrow(G)
+  int_sizes <- rep(N_int, D) # rnbinom(D, mu=N_int - N_int/10, size=N_int/10) + N_int/10
+  net_vars <- colSums(G**2)
+  eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
+  if(noise == 'gaussian'){
+    eps <- t(matrix(rnorm(D*N, sd=sqrt(eps_vars)), nrow=D, ncol=N))
+  } else{
+    stop('NotImplementedError')
+  }
+
+  Y_cont <- eps[1:N_cont,] %*% solve(diag(D) - G)
+
+}
+
+
+generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian'){
   D <- nrow(G)
   int_sizes <- rep(N_int, D) # rnbinom(D, mu=N_int - N_int/10, size=N_int/10) + N_int/10
 
@@ -207,12 +223,12 @@ generate_data_inspre <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian'
 #' @param DAG Bool. TRUE to ensure the returned graph is a DAG.
 #' @param C Integer. Number of fully connected confounding nodes to simulate.
 #' @param noise String. Noise model to simulate, currently just "gaussian".
-#' @param model Data generating model. One of "inspre" or "dotears".
+#' @param model Data generating model. One of "inhibition" or "knockout".
 #' @export
 generate_dataset <- function(D, N_cont, N_int, int_beta=-2,
                              graph = 'scalefree', v = 0.2, p = 0.4,
                              DAG = FALSE, C = floor(0.1*D), noise = 'gaussian',
-                             model = 'inspre'){
+                             model = 'inhibition'){
   G <- generate_network(D, graph, p, v, DAG)
   if(C > 0){
     if(graph == "scalefree"){
@@ -223,10 +239,10 @@ generate_dataset <- function(D, N_cont, N_int, int_beta=-2,
 
     G <- cbind(rbind(G, new_vars), matrix(0, nrow=D+C, ncol=C))
   }
-  if(model == 'inspre'){
-    data = generate_data_inspre(G, N_cont, N_int, int_beta, noise)
-  } else {
-    stop("NotImplementedException")
+  if(model == 'inhibition'){
+    data = generate_data_inhibition(G, N_cont, N_int, int_beta, noise)
+  } else if (model == 'knockout'){
+    data = generate_data_knockout(G, N_cont, N_int, noise)
   }
 
   Y <- data$Y

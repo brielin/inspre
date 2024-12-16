@@ -10,6 +10,10 @@ require(readr)
 require(igraph)
 require(ggupset)
 require(betareg)
+require(expm)
+require(foreach)
+require(doParallel)
+require(stringr)
 ```
 
 
@@ -19,6 +23,7 @@ save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_dag.R
 save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
 save_gene_data = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gene_data.Rdata'
 save_graph_data = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_graph_data.Rdata'
+save_plots = '/'
 ```
 
 
@@ -32,6 +37,8 @@ SE_hat <- res_dag$SE_hat
 G_hat <- res_dag$G_hat[,,best_lambda]
 G_hat[abs(c(G_hat)) < min_nz] <- 0
 U_hat <- res_dag$U[,,best_lambda]
+V_hat <- res_dag$V[,,best_lambda]
+H_hat <- U_hat * diag(V_hat)
 
 hfile_sc <- hdf5r::H5File$new(k562_norm_sc_fn, "r")
 var <- inspre::parse_hdf5_df(hfile_sc, 'var')
@@ -66,16 +73,8 @@ graph_data <- graph_data %>%
 
 
 ```{r}
-print(summary(abs(graph_data$R_hat)))
-print(summary(abs(graph_data$G_hat)))
-print(summary(abs(graph_data$G_hat[abs(graph_data$G_hat) > 0.0])))
-print(summary(abs(graph_data$U_hat)))
-graph_data %>% ggplot(aes(x=abs(G_hat))) + geom_histogram()
-graph_data %>% filter(abs(G_hat) > 0.0) %>% ggplot(aes(x=abs(G_hat))) + geom_histogram()
-graph_data %>% ggplot(aes(x=abs(R_hat))) + geom_histogram()
-graph_data %>% ggplot(aes(x=abs(U_hat))) + geom_histogram()
-```
 
+```
 
 
 ```{r, fig.widith=3.25, fig.height=3.25}
@@ -85,48 +84,50 @@ graph_data <- dplyr::mutate(graph_data, R_plot=if_else(Exposure==Outcome, 0, R_h
 ```
 
 
-```{r, fig.width=2.72, fig.asp=1.08}
+```{r, fig.width=3.5, fig.asp=1}
 ggplot(graph_data, aes(y=Exposure, x=Outcome)) + # geom_tile(aes(fill=R_plot)) +
   geom_raster(aes(fill=sign(R_plot)*sqrt(abs(R_plot)))) +
   scale_x_discrete(limits = genes[(plot_order)], labels = NULL) +
   scale_y_discrete(limits = genes[rev(plot_order)], labels = NULL) +
   scale_fill_gradient2(limits = c(-1, 1))  +
-  labs(x = "Outcome", y = "Exposure", title = "Observed marginal ACE (R)") +
+  labs(x = NULL, y = "Exposure", title = "Observed marginal ACE (R)") +
   theme(plot.title = element_text(size=10), axis.ticks=element_blank(),
         axis.title = element_text(size=10), legend.title = element_text(size=10),
         plot.margin = unit(c(0.5,0.5,0.5,0.5), 'mm')) +
   guides(fill=FALSE) + coord_fixed()
+ggsave("plots/R_hat.png")
 ```
 
 
-```{r, fig.width=2.53, fig.asp=1.16}
+```{r, fig.width=3.5, fig.asp=1}
 ggplot(graph_data, aes(y=Exposure, x=Outcome)) + # geom_tile(aes(fill=U_plot)) +
   geom_raster(aes(fill=sign(U_hat)*sqrt(abs(U_hat)))) +
   scale_x_discrete(limits = genes[(plot_order)], labels = NULL) +
   scale_y_discrete(limits = genes[rev(plot_order)], labels = NULL) +
   scale_fill_gradient2(limits = c(-1, 1))  +
-  labs(x = "Outcome", y = NULL, title = "Shrunk marginal ACE (U)") +
+  labs(x = NULL, y = "Exposure", title = "Shrunk marginal ACE (U)") +
   theme(plot.title = element_text(size=10), axis.ticks=element_blank(),
         axis.title = element_text(size=10), legend.title = element_text(size=10),
         plot.margin = unit(c(0.5,0.5,0.5,0.5), 'mm')) +
   guides(fill=FALSE) + coord_fixed()
+ggsave("plots/U_hat.png")
 ```
 
 
-```{r, fig.width=3.26, fig.asp=0.9}
+```{r, fig.width=4.25, fig.asp=0.9}
 ggplot(graph_data, aes(y=Exposure, x=Outcome)) + # geom_tile(aes(fill=G_hat)) + 
   geom_tile(aes(fill=sign(G_hat)*sqrt(abs(G_hat)))) +
   scale_x_discrete(limits = genes[(plot_order)], labels = NULL) +
   scale_y_discrete(limits = genes[rev(plot_order)], labels = NULL) +
   scale_fill_gradient2(limits = c(-1, 1)) + #, breaks = c(-1, 0, 1)) +
-  labs(x = "Outcome", y = NULL, fill = "Effect", title = "Inferred direct causal effect (G)") +
+  labs(x = "Outcome", y = "Exposure", fill = "Effect", title = "Inferred direct causal effect (G)") +
   theme(plot.title = element_text(size=10), axis.ticks=element_blank(),
         axis.title = element_text(size=10), legend.title = element_text(size=9),
         legend.key.size = unit(0.4, 'cm'), legend.text = element_text(size=9),
         plot.margin = unit(c(0.5,0,0.5,0.5), 'mm')) +
   coord_fixed()
+ggsave("plots/G_hat.png")
 ```
-
 
 
 ```{r}
@@ -140,7 +141,8 @@ gene_data <- gene_data %>% dplyr::left_join(enframe(genes[plot_order], name="ord
 
 ```{r}
 scale_factor <- 2
-graph <- make_igraph(G_hat, min_edge_value = 0.05, scale_factor = scale_factor)
+# graph <- make_igraph(G_hat, min_edge_value = 0.05, scale_factor = scale_factor)
+graph <- make_igraph(G_hat, min_edge_value = 0.015, scale_factor = scale_factor)
 
 distances <- igraph::distances(graph, mode = "out")
 distances_long <- tidyr::pivot_longer(
@@ -148,18 +150,24 @@ distances_long <- tidyr::pivot_longer(
   names_to = "Outcome", values_to = "log_scale_dist")
 
 graph_data$G_path_scaled <- 1/exp(distances_long$log_scale_dist)
-graph_data$path_length <- purrr::pmap_int(
-  select(graph_data, Exposure, Outcome, G_path_scaled),
+# graph_data$path_length <- purrr::pmap_int(
+for_path <- graph_data %>% filter(G_path_scaled > 0) %>% select(Exposure, Outcome, G_path_scaled)
+
+for_path$path <- purrr::pmap(
+  for_path,
   function(Exposure, Outcome, G_path_scaled){
     # split <- strsplit(Exposure, "_", fixed=TRUE)
     # as.integer(ifelse(G_path > 0, length(igraph::shortest_paths(graph, split[[1]][length(split[[1]])], Outcome, mode = "out")$vpath[[1]]) - 1, NA))
-    as.integer(ifelse(G_path_scaled > 0,
-                      length(igraph::shortest_paths(graph, Exposure, Outcome, mode = "out")$vpath[[1]]) - 1, NA))
+    # as.integer(ifelse(G_path_scaled > 0, length(igraph::shortest_paths(graph, Exposure, Outcome, mode = "out")$vpath[[1]]) - 1, NA))
+    names(igraph::shortest_paths(graph, Exposure, Outcome, mode = "out")$vpath[[1]])
   }
 )
 
+graph_data <- dplyr::left_join(select(graph_data, -G_path_scaled), for_path, by = c("Exposure", "Outcome"))
+graph_data$path_length <- map_int(graph_data$path, ~ length(.x)-1)
+graph_data$path_length <- ifelse(graph_data$path_length==-1, NA, graph_data$path_length)
 graph_data <- graph_data %>% dplyr::mutate(G_path = ifelse(G_path_scaled > 0, G_path_scaled*(scale_factor**path_length), 0),
-                       eff_explained = ifelse((Exposure != Outcome) & (G_path > 0), abs(G_path/U_norm), NA))
+                       eff_explained = ifelse((Exposure != Outcome) & (G_path > 0), abs(G_path/U_hat), NA))
 gene_data$out_deg <- igraph::degree(graph, mode = "out")[gene_data$gene]
 gene_data$in_deg <- igraph::degree(graph, mode = "in")[gene_data$gene]
 gene_data$deg <- igraph::degree(graph, mode = "all")[gene_data$gene]
@@ -180,15 +188,14 @@ load(save_graph_data)
 ```
 
 
-```{r, fig.height=2, fig.width=2.8}
-
-graph_data %>% filter(!is.na(path_length), Exposure != Outcome) %>%
-  ggplot(aes(x=path_length)) + geom_bar(aes(y=..count../sum(..count..))) +
-  labs( title = "Shortest path between nodes (all)", x = "Path length", y = "Proportion") + 
-  theme_classic() +
-  theme(plot.title = element_text(size=10),  axis.title = element_text(size=10)) +
-  scale_x_continuous(breaks = scales::pretty_breaks(n=6))
- 
+```{r, fig.height=2.5, fig.width=4}
+# graph_data %>% filter(!is.na(path_length), Exposure != Outcome) %>%
+#   ggplot(aes(x=path_length)) + geom_bar(aes(y=..count../sum(..count..))) +
+#   labs( title = "Shortest path between nodes (all)", x = "Path length", y = "Proportion") + 
+#   theme_classic() +
+#   theme(plot.title = element_text(size=10),  axis.title = element_text(size=10)) +
+#   scale_x_continuous(breaks = scales::pretty_breaks(n=6))
+  
 graph_data %>% filter(!is.na(path_length), Exposure != Outcome, p_fdr < 0.05) %>%
   ggplot(aes(x=path_length)) + geom_bar(aes(y=..count../sum(..count..))) +
   labs( title = "Shortest path between nodes", x = "Path length", y = "Proportion") + 
@@ -196,26 +203,56 @@ graph_data %>% filter(!is.na(path_length), Exposure != Outcome, p_fdr < 0.05) %>
   theme(plot.title = element_text(size=10), axis.title = element_text(size=10)) +
 #        axis.ticks.y = element_blank(), axis.text.y=element_blank()) +
   scale_x_continuous(breaks = scales::pretty_breaks(n=6))
+ggsave("plots/shortest_path.png")
 
 
-gene_data %>% ggplot(aes(x = in_deg)) + geom_histogram() + labs( x = "In-degree")
+gene_data %>% ggplot(aes(x = in_deg)) + geom_histogram() + 
+  labs(x = "In-degree", y = "Count", title = "In-degree distribution") +
+  theme_classic() + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+ggsave("plots/in_degree.png")
 
-gene_data %>% ggplot(aes(x = out_deg)) + geom_histogram() + labs( x = "Out-degree")
+gene_data %>% ggplot(aes(x = out_deg)) + geom_histogram() + 
+  labs( x = "Out-degree", y = "Count", title = "Out-degree distribution") +
+  theme_classic() + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+ggsave("plots/out_degree.png")
+
+gene_data %>% ggplot(aes(eg_centrality)) + geom_density()
+
+tibble(Percentage=seq(0,1,0.01), Quantile=quantile(gene_data$eg_centrality, seq(0,1,0.01))) %>%
+  ggplot(aes(Percentage, Quantile)) + geom_line() + theme_classic() + 
+  labs(title="Eigencentrality distribution") + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+ggsave("plots/eigencentrality.png")
+
+ecdf_fn <- ecdf(gene_data$eg_centrality)
+tibble(Eigencentrality=seq(0,1,0.01), Cumulative_distribution=map_dbl(seq(0,1,0.01), ecdf_fn)) %>%
+ggplot(aes(Eigencentrality, Cumulative_distribution)) + geom_line() + theme_classic() + 
+  labs(title="Eigencentrality CDF") + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+
+gene_data %>% ggplot(aes(x = eg_centrality)) + geom_histogram() + 
+  labs( x = "Eigencentrality", y = "Count", title = "Eigencentrality distribution") +
+  theme_classic() + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+ggsave("plots/eigencentrality.png")
+
 
 print(summary(filter(graph_data, !is.na(eff_explained), p_fdr < 0.05)$eff_explained))
 ```
-```{r, fig.height=2, fig.width=2.5}
+
+
+```{r, fig.height=2.5, fig.width=3.25}
 graph_data %>% filter(!is.na(eff_explained), p_fdr < 0.05) %>% ggplot(aes(x=100*eff_explained)) +
   geom_histogram(aes(y=..count../sum(..count..)), bins = 50) + xlim(0, 150) +
   labs(title = "ACE explained by shortest path",
        x = "Percentage of effect explained", y = NULL) +
   theme_classic() + 
   theme(plot.title = element_text(size=10), axis.title = element_text(size=10)) + ylim(0, 0.3)
-
+ggsave("plots/ace_explained.png")
 ```
 
 
+
 ```{r}
+print(sum(abs(graph_data$G_hat) > 0))
+print(sum(graph_data$p_fdr < 0.05, na.rm=T))
 print((sum(!is.na(graph_data$path_length))-788)/(nrow(graph_data)-788))
 print(mean(graph_data$path_length, na.rm=T))
 print(sd(graph_data$path_length, na.rm=T))
@@ -227,20 +264,6 @@ print(median(filter(graph_data, p_fdr<0.05)$eff_explained, na.rm=T))
 print(sum(filter(graph_data, p_fdr<0.05)$eff_explained > 1, na.rm=T))
 ```
 
-
-```{r}
-gene_data %>% ggplot(aes(out_deg, inst_beta)) + geom_point()
-gene_data %>% ggplot(aes(out_deg, inst_cor)) + geom_point()
-gene_data %>% ggplot(aes(in_deg, inst_cor)) + geom_point()
-gene_data %>% ggplot(aes(cv, inst_beta)) + geom_point()
-gene_data %>% ggplot(aes(mean, inst_beta)) + geom_point()
-gene_data %>% ggplot(aes(mean, in_deg)) + geom_point()
-gene_data %>% ggplot(aes(exp_norm, deg)) + geom_point()
-gene_data %>% ggplot(aes(cv, out_deg)) + geom_point()
-gene_data %>% ggplot(aes(mean, eg_centrality)) + geom_point()
-gene_data %>% ggplot(aes(inst_cor, eg_centrality)) + geom_point()
-gene_data %>% ggplot(aes(bt_centrality, eg_centrality)) + geom_point()
-```
 
 ```{r, fig.height=2.13, fig.width=2.8}
 gene_data %>% dplyr::arrange(desc(eg_centrality)) %>% head(10) %>%
@@ -256,6 +279,7 @@ gene_data %>% dplyr::arrange(desc(eg_centrality)) %>% head(10) %>%
 # gene_data %>% dplyr::arrange(desc(deg)) %>% head() %>% ggplot(aes(x=gene_name, y=deg)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 ```
 
+
 ```{r}
 gene_annotations_MM <- readr::read_delim('/gpfs/commons/groups/knowles_lab/gwps/data/GeneAnnotation_MM.tsv')
 gene_annotations_JM <- readr::read_delim('/gpfs/commons/groups/knowles_lab/gwps/data/MorrisScience2023_SupplementaryTable_refGeneAnnotations.txt')
@@ -269,350 +293,646 @@ gene_data <- mutate(gene_data, bt_cent_mod = if_else(
 ```
 
 
-# ```{r}
-# calc_annot_stats <- function(column){
-#   betareg_res <- summary(betareg::betareg(as.formula(paste("eg_cent_mod ~ mean + ", column)), data=gene_data))     
-#   return(as.data.frame(as.list(betareg_res$coefficients$mean[3,]), row.names = column))
-# }
-# 
-# MM_annot_res <- purrr::map(colnames(gene_annotations_MM)[2:19], calc_annot_stats) %>% list_rbind()
-# MM_annot_res$p_adj <- p.adjust(MM_annot_res$Pr...z.., method='holm')
-# as_tibble(MM_annot_res_nomean, rownames = "Annotation") %>% readr::write_csv(file = "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/mm_annot_res.csv")
-# MM_annot_res
-# ```
-
-
 ```{r}
-calc_beta_res <- function(column){
-  betareg_res <- betareg::betareg(as.formula(paste("eg_cent_mod ~ ", column)), data=gene_data)
-  return(betareg_res)
-}
-
-get_coeff <- function(betareg_res){
-  summary_res <- summary(betareg_res)
-  column <- rownames(summary_res$coefficients$mean)[2]
-  return(as.data.frame(as.list(summary_res$coefficients$mean[2,]), row.names = column))
-}
-
-# MM_annot_res_nomean <- purrr::map(colnames(gene_annotations_MM)[2:17], calc_annot_stats) %>% list_rbind()
-# MM_annot_res_nomean$p_adj <- p.adjust(MM_annot_res_nomean$Pr...z.., method='holm')
-# readr::write_csv(MM_annot_res_nomean, file = "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/mm_annot_res_nomean.csv")
-#  MM_annot_res_nomean
-all_beta_res <- purrr::map(colnames(gene_annotations_MM)[2:17], calc_beta_res)
+# Source utility.R
+all_beta_res <- purrr::map(colnames(gene_annotations_MM)[2:17], ~ calc_beta_res(.x, gene_data))
 MM_annot_res <- purrr::map(all_beta_res, get_coeff) %>% list_rbind()
 names(all_beta_res) <- colnames(gene_annotations_MM)[2:17]
 MM_annot_res$p_adj <- p.adjust(MM_annot_res$Pr...z.., method='holm')
-readr::write_csv(MM_annot_res, file = "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/mm_annot_res.csv")
+# readr::write_csv(MM_annot_res, file = "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/mm_annot_res.csv")
 MM_annot_res %>% arrange(p_adj)
+```
+
+```{r, fig.width=3.4, fig.height=2.5}
+line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res$gnomAD_pLI, newdata = data.frame(gnomAD_pLI=seq(0, 1, .01))))
+gene_data %>% ggplot(aes(x=gnomAD_pLI, y=eg_centrality)) + geom_point(size=0.5) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/pli.png")
+
 ```
 
 
 ```{r, fig.width=2.7, fig.height=2}
 # Plotting significant relationships
-line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res$pTriplo, newdata = data.frame(pTriplo=seq(0, 1, .01))))
-gene_data %>% ggplot(aes(x=pTriplo, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic()
 
-line_data = data.frame(x=seq(0.24, 0.84, .01), y=predict(all_beta_res$EDS, newdata = data.frame(EDS=seq(0.24, 0.84, .01))))
-gene_data %>% ggplot(aes(x=EDS, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + 
-  labs(x = "Enhancer domain score", y = "Eigencentrality")
+# NOTE PLI (prob of loss of function intolerance) is anticorrelated to LOEUF in MM annot
 
 line_data = data.frame(x=seq(0, 7500, 1), y=predict(all_beta_res$n_ppis, newdata = data.frame(n_ppis=seq(0, 7500, 1))))
-gene_data %>% ggplot(aes(x=n_ppis, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1)  + theme_classic()
+gene_data %>% ggplot(aes(x=n_ppis, y=eg_centrality)) + geom_point(alpha=0.2) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1)  + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/n_ppis_supp.png")
 
-line_data = data.frame(x=seq(0, 2, .01), y=predict(all_beta_res$gnomAD_LOEUF, newdata = data.frame(gnomAD_LOEUF=seq(0, 2, .01))))
-gene_data %>% ggplot(aes(x=gnomAD_LOEUF, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic()
+line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res$gnomAD_pLI, newdata = data.frame(gnomAD_pLI=seq(0, 1, .01))))
+gene_data %>% ggplot(aes(x=gnomAD_pLI, y=eg_centrality)) + geom_point(alpha=0.2) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/pli_supp.png")
 
-line_data = data.frame(x=seq(-2.6, 2.3, .1), y=predict(all_beta_res$ExAC_DEL_Z, newdata = data.frame(ExAC_DEL_Z=seq(-2.6, 2.3, .1))))
-gene_data %>% ggplot(aes(x=ExAC_DEL_Z, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic()
-
-line_data = data.frame(x=seq(0, 2, .01), y=predict(all_beta_res$gnomAD_MisOEUF, newdata = data.frame(gnomAD_MisOEUF=seq(0, 2, .01))))
-gene_data %>% ggplot(aes(x=gnomAD_MisOEUF, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic()
+line_data = data.frame(x=seq(0, 0.64, .01), y=predict(all_beta_res$sHet, newdata = data.frame(sHet=seq(0, 0.64, .01))))
+gene_data %>% ggplot(aes(x=sHet, y=eg_centrality)) + geom_point(alpha=0.2) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/shet_supp.png")
 
 line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res$HI_Index, newdata = data.frame(HI_Index=seq(0, 1, .01))))
-gene_data %>% ggplot(aes(x=HI_Index, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic()
+gene_data %>% ggplot(aes(x=HI_Index, y=eg_centrality)) + geom_point(alpha=0.2) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/hi_index_supp.png")
 
-line_data = data.frame(x=seq(-2.9, 2.2, .1), y=predict(all_beta_res$CCDG_DEL_Score, newdata = data.frame(CCDG_DEL_Score=seq(-2.9, 2.2, .1))))
-gene_data %>% ggplot(aes(x=CCDG_DEL_Score, y=eg_centrality)) + geom_point() +
-  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic()
+line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res$pHaplo, newdata = data.frame(pHaplo=seq(0, 1, .01))))
+gene_data %>% ggplot(aes(x=pHaplo, y=eg_centrality)) + geom_point(alpha=0.2) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/phaplo_supp.png")
+
+line_data = data.frame(x=seq(0, 2, .01), y=predict(all_beta_res$gnomAD_LOEUF, newdata = data.frame(gnomAD_LOEUF=seq(0, 2, .01))))
+gene_data %>% ggplot(aes(x=gnomAD_LOEUF, y=eg_centrality)) + geom_point(alpha=0.2) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/loeuf_supp.png")
+
+line_data = data.frame(x=seq(0, 2, .01), y=predict(all_beta_res$gnomAD_MisOEUF, newdata = data.frame(gnomAD_MisOEUF=seq(0, 2, .01))))
+gene_data %>% ggplot(aes(x=gnomAD_MisOEUF, y=eg_centrality)) + geom_point(alpha=0.2) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/misoeuf_supp.png")
 ```
 
 
 ```{r}
-plt_genes <- filter(gene_data, Platelets == TRUE, (out_deg > 0 | in_deg > 0))$gene
-ret_genes <- filter(gene_data, Reticulocytes == TRUE, (out_deg > 0 | in_deg > 0))$gene
-wbc_genes <- filter(gene_data, WBCs == TRUE, (out_deg > 0 | in_deg > 0))$gene
-rbc_genes <- filter(gene_data, RBCs == TRUE, (out_deg > 0 | in_deg > 0))$gene
-all_blood_genes <- union(union(plt_genes, ret_genes), union(rbc_genes, wbc_genes))
+# Variance explained analyses
+D <- nrow(gene_data)
+U_hat <- t(matrix(graph_data$U_hat, nrow=D, ncol=D))
+rownames(U_hat) <- gene_data$gene
+colnames(U_hat) <- gene_data$gene
+
+s2 <- est_noise_var(U_hat, rep(1,D), non_neg = TRUE)
+beta2_adj = ((U_hat-diag(D))**2)
+R_adj = beta2_adj*s2
+
+v_exp_in <- colSums(R_adj)
+v_exp_by <- rowSums(R_adj)
+gene_data$v_exp_in <- v_exp_in
+gene_data$v_exp_by <- v_exp_by
+
+cis_trans_fn <- "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/cis_trans.csv"
+cis_trans <- readr::read_csv(cis_trans_fn)
+
+gene_data <- dplyr::left_join(gene_data, cis_trans, by = dplyr::join_by(gene == Gene))
 ```
 
 
-```{r, fig.width=5in, fig.asp=3}
-make_upset_res <- function(gene){
-  res = c()
-  if(gene %in% plt_genes) res = c(res, "PLT")
-  if(gene %in% wbc_genes) res = c(res, "WBC")
-  if(gene %in% rbc_genes) res = c(res, "RBC")
-  if(gene %in% ret_genes) res = c(res, "RET")
+```{r, fig.width=3.85, fig.height=2.5}
+calc_r_se <- function(.x, n_samp=1000){
+  data <- dplyr::filter(gene_data, v_exp_in > .x, gw_h2 > .x) %>%
+    dplyr::select(gene, v_exp_in, gw_h2)
+  cors <- rep(0, nrow(data))
+  for(i in 1:n_samp){
+    resample <- sample(nrow(data), nrow(data), replace=T)
+    resample_data <- data[resample, ]
+    cors[i] <- cor(resample_data$v_exp_in, resample_data$gw_h2)
+  }
+  res <- data.frame(cors=cors)
+  res$cutoff <- .x
   return(res)
 }
 
-blood_gene_data <- data.frame(gene=all_blood_genes)
-blood_gene_data$blood_traits <- purrr::map(blood_gene_data$gene, make_upset_res)
-blood_gene_data %>% ggplot(aes(x = blood_traits)) + geom_bar() + scale_x_upset() + theme_classic() + labs(x = NULL, y = "Gene count")
-```
+# plot_data <- purrr::map(seq(0, 0.5, .05), calc_r_se) %>% purrr::list_rbind()
 
-# 
-# gene_data <- gene_data %>% dplyr::mutate(G_rnk_plt = min_rank(desc(G_plt)),
-#                                          G_rnk_wbc = min_rank(desc(G_wbc)),
-#                                          G_rnk_rbc = min_rank(desc(G_rbc)),
-#                                          G_rnk_ret = min_rank(desc(G_ret)))
-# 
-# gene_data <- gene_data %>% dplyr::mutate(U_rnk_plt = min_rank(desc(U_plt)),
-#                                          U_rnk_wbc = min_rank(desc(U_wbc)),
-#                                          U_rnk_rbc = min_rank(desc(U_rbc)),
-#                                          U_rnk_ret = min_rank(desc(U_ret)))
-# 
-# gene_data$top_trait_G <- dplyr::select(gene_data, starts_with("G_rnk")) %>%
-#   rename_with(~gsub("G_", "", .x)) %>% purrr::pmap(make_upset_res)
-# gene_data$n_top_traits_G <- purrr::map_int(gene_data$top_trait_G, length)
-# 
-# gene_data$top_trait_U <- dplyr::select(gene_data, starts_with("U_rnk")) %>%
-#   rename_with(~gsub("U_", "", .x)) %>% purrr::pmap(make_upset_res)
-# gene_data$n_top_traits_U <- purrr::map_int(gene_data$top_trait_U, length)
-# 
-# gene_data %>% filter(n_top_traits_G > 0) %>% ggplot(aes(x = top_trait_G)) + geom_bar() + scale_x_upset()
-# gene_data %>% filter(n_top_traits_U > 0) %>% ggplot(aes(x = top_trait_U)) + geom_bar() + scale_x_upset()
-# ```
-
-
-# ```{r, fig.width=8}
-# cutoff <- 0.1
-# U_plt <- rowSums(abs(U_hat[,colnames(U_hat) %in% plt_genes]) > cutoff)
-# G_plt <- rowSums(abs(G_hat[,colnames(G_hat) %in% plt_genes]) > cutoff)
-# 
-# U_wbc <- rowSums(abs(U_hat[,colnames(U_hat) %in% wbc_genes]) > cutoff)
-# G_wbc <- rowSums(abs(G_hat[,colnames(G_hat) %in% wbc_genes]) > cutoff)
-# 
-# U_rbc <- rowSums(abs(U_hat[,colnames(U_hat) %in% rbc_genes]) > cutoff)
-# G_rbc <- rowSums(abs(G_hat[,colnames(G_hat) %in% rbc_genes]) > cutoff)
-# 
-# U_ret <- rowSums(abs(U_hat[,colnames(U_hat) %in% ret_genes]) > cutoff)
-# G_ret <- rowSums(abs(G_hat[,colnames(G_hat) %in% ret_genes]) > cutoff)
-# 
-# gene_data$U_plt <- U_plt
-# gene_data$G_plt <- G_plt
-# gene_data$U_wbc <- U_wbc
-# gene_data$G_wbc <- G_wbc
-# gene_data$U_rbc <- U_rbc
-# gene_data$G_rbc <- G_rbc
-# gene_data$U_ret <- U_ret
-# gene_data$G_ret <- G_ret
-# ```
-# 
-# 
-# ```{r}
-# gene_data %>% dplyr::arrange(desc(G_plt)) %>% head() %>% ggplot(aes(x=gene_name, y=G_plt)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# gene_data %>% dplyr::arrange(desc(U_plt)) %>% head() %>% ggplot(aes(x=gene_name, y=U_plt)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# gene_data %>% dplyr::arrange(desc(G_wbc)) %>% head() %>% ggplot(aes(x=gene_name, y=G_wbc)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# gene_data %>% dplyr::arrange(desc(U_wbc)) %>% head() %>% ggplot(aes(x=gene_name, y=U_wbc)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# 
-# gene_data %>% dplyr::arrange(desc(G_rbc)) %>% head() %>% ggplot(aes(x=gene_name, y=G_rbc)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# gene_data %>% dplyr::arrange(desc(U_rbc)) %>% head() %>% ggplot(aes(x=gene_name, y=U_rbc)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# 
-# gene_data %>% dplyr::arrange(desc(G_ret)) %>% head() %>% ggplot(aes(x=gene_name, y=G_ret)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# gene_data %>% dplyr::arrange(desc(U_ret)) %>% head() %>% ggplot(aes(x=gene_name, y=U_ret)) + geom_col() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-# 
-# ```
-# 
-# 
-# ```{r}
-# make_upset_res <- function(rnk_plt, rnk_wbc, rnk_rbc, rnk_ret, cutoff=10){
-#   res = c()
-#   if(rnk_plt <= cutoff) res = c(res, "Platelet")
-#   if(rnk_wbc <= cutoff) res = c(res, "WBC")
-#   if(rnk_rbc <= cutoff) res = c(res, "RBC")
-#   if(rnk_ret <= cutoff) res = c(res, "Reticulocyte")
-#   return(res)
-# }
-# 
-# gene_data <- gene_data %>% dplyr::mutate(G_rnk_plt = min_rank(desc(G_plt)),
-#                                          G_rnk_wbc = min_rank(desc(G_wbc)),
-#                                          G_rnk_rbc = min_rank(desc(G_rbc)),
-#                                          G_rnk_ret = min_rank(desc(G_ret)))
-# 
-# gene_data <- gene_data %>% dplyr::mutate(U_rnk_plt = min_rank(desc(U_plt)),
-#                                          U_rnk_wbc = min_rank(desc(U_wbc)),
-#                                          U_rnk_rbc = min_rank(desc(U_rbc)),
-#                                          U_rnk_ret = min_rank(desc(U_ret)))
-# 
-# gene_data$top_trait_G <- dplyr::select(gene_data, starts_with("G_rnk")) %>%
-#   rename_with(~gsub("G_", "", .x)) %>% purrr::pmap(make_upset_res)
-# gene_data$n_top_traits_G <- purrr::map_int(gene_data$top_trait_G, length)
-# 
-# gene_data$top_trait_U <- dplyr::select(gene_data, starts_with("U_rnk")) %>%
-#   rename_with(~gsub("U_", "", .x)) %>% purrr::pmap(make_upset_res)
-# gene_data$n_top_traits_U <- purrr::map_int(gene_data$top_trait_U, length)
-# 
-# gene_data %>% filter(n_top_traits_G > 0) %>% ggplot(aes(x = top_trait_G)) + geom_bar() + scale_x_upset()
-# gene_data %>% filter(n_top_traits_U > 0) %>% ggplot(aes(x = top_trait_U)) + geom_bar() + scale_x_upset()
-# ```
-# 
-# ```{r}
-# gene_data %>% filter(top_trait_G == c("Platelet")) %>% select(c('gene_name', starts_with('G_rnk')))
-# gene_data %>% filter(top_trait_G == c("Reticulocyte")) %>% select(c('gene_name', starts_with('G_rnk')))
-# gene_data %>% filter(top_trait_G == c("RBC")) %>% select(c('gene_name', starts_with('G_rnk')))
-# gene_data %>% filter(top_trait_G == c("WBC")) %>% select(c('gene_name', starts_with('G_rnk')))
-# ```
-# 
-# 
-# ```{r}
-# gene_data %>% filter(top_trait_U == c("Platelet")) %>% select(c('gene_name', starts_with('U_rnk')))
-# gene_data %>% filter(top_trait_U == c("Reticulocyte")) %>% select(c('gene_name', starts_with('U_rnk')))
-# gene_data %>% filter(top_trait_U == c("RBC")) %>% select(c('gene_name', starts_with('U_rnk')))
-# gene_data %>% filter(top_trait_U == c("WBC")) %>% select(c('gene_name', starts_with('U_rnk')))
-# ```
-
-
-```{r}
-all_blood_genes <- union(union(plt_genes, ret_genes), union(rbc_genes, wbc_genes))
-
-test_mean_effect <- function(gene){
-  t_plt <- t.test(abs(filter(graph_data, Exposure == gene, Outcome %in% plt_genes)$U_hat),
-                  abs(filter(graph_data, Exposure == gene, Outcome %in% 
-                           setdiff(unique(c(wbc_genes, rbc_genes, ret_genes)), plt_genes))$U_hat), 
-                  alternative = "greater")$statistic[['t']]
-  t_ret <- t.test(abs(filter(graph_data, Exposure == gene, Outcome %in% ret_genes)$U_hat),
-                  abs(filter(graph_data, Exposure == gene, Outcome %in% 
-                           setdiff(unique(c(wbc_genes, rbc_genes, plt_genes)), ret_genes))$U_hat),
-                  alternative = "greater")$statistic[['t']]
-  t_rbc <- t.test(abs(filter(graph_data, Exposure == gene, Outcome %in% rbc_genes)$U_hat),
-                  abs(filter(graph_data, Exposure == gene, Outcome %in% 
-                           setdiff(unique(c(wbc_genes, plt_genes, ret_genes)), rbc_genes))$U_hat),
-                  alternative = "greater")$statistic[['t']]
-  t_wbc <- t.test(abs(filter(graph_data, Exposure == gene, Outcome %in% wbc_genes)$U_hat),
-                  abs(filter(graph_data, Exposure == gene, Outcome %in% 
-                           setdiff(unique(c(plt_genes, rbc_genes, ret_genes)), wbc_genes))$U_hat),
-                  alternative = "greater")$statistic[['t']]
-  # t_trait_non <-  t.test(abs(filter(graph_data, Exposure == gene, Outcome %in% all_blood_genes)$U_hat),
-  #                        abs(filter(graph_data, Exposure == gene, !(Outcome %in% all_blood_genes))$U_hat),
-  #                 alternative = "greater")$p.val
-  return(data.frame(gene=gene, t_plt=t_plt, t_ret=t_ret,
-              t_rbc=t_rbc, t_wbc=t_wbc)) #, p_all = p_trait_non))
-}
-
-diff_eff <- purrr::map(gene_data$gene, test_mean_effect) %>% list_rbind()
-diff_eff$gene_name <- gene_data$gene_name
-readr::write_csv(diff_eff, file = "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/diff_eff.csv")
-diff_eff_long <- diff_eff %>% pivot_longer(-c(gene, gene_name), names_to="class", values_to = "t_val")
-# diff_eff_long$p_fdr <- p.adjust(diff_eff_long$p, method='fdr')
-```
-
-
-```{r, fig.width=2.5, fig.height=2}
-diff_eff_long %>% ggplot(aes(sample=t_val)) +
-  geom_qq(distribution = qt, dparams=c("df"=250)) +
-  geom_qq_line(distribution = qt, dparams=c("df"=250), line.p=c(0.1,0.9)) +
-  theme_classic() + labs(x="Expected t-statistic", y="Observed t-statistic", title="Differential effects on blood trait genes") +
+plot_data %>% ggplot(aes(factor(cutoff), cors)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_jitter(width=0.1, alpha=0.05, size=0.01) + 
+  theme_classic() +
+  labs(x="Minimum h2", y="Bootstrap correlation", title="Cor of gene h2 with graph variance explained") +
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
-
+ggsave("plots/h2.png")
 ```
 
 
 ```{r}
-all_blood_genes <- union(union(plt_genes, ret_genes), union(rbc_genes, wbc_genes))
-blood_ave_effect <- function(gene){
-  plt_effect <- mean(abs(filter(graph_data, Exposure == gene, Outcome %in% plt_genes)$U_hat))
-  ret_effect <- mean(abs(filter(graph_data, Exposure == gene, Outcome %in% ret_genes)$U_hat))
-  wbc_effect <- mean(abs(filter(graph_data, Exposure == gene, Outcome %in% wbc_genes)$U_hat))
-  rbc_effect <- mean(abs(filter(graph_data, Exposure == gene, Outcome %in% rbc_genes)$U_hat))
-  non_trait_effect <- mean(abs(filter(graph_data, Exposure == gene, Outcome %in% all_blood_genes)$U_hat))
-  return(data.frame("gene" = gene, "PLT" = plt_effect, "RET" = ret_effect,
-                    "WBC" = wbc_effect, "RBC" = rbc_effect, "None" = non_trait_effect))
+# Re-estimating r2 in shuffled or non-shuffled data
+D <- nrow(gene_data)
+ntc = 'non-targeting'
+hfile_sc <- hdf5r::H5File$new(k562_norm_sc_fn, "r")
+var <- inspre::parse_hdf5_df(hfile_sc, 'var')
+obs <- inspre::parse_hdf5_df(hfile_sc, 'obs')
+cells_ntc <- obs$gene == ntc
+# TODO: fix this eg use_genes <- var$gene_id %in% gene_data$gene
+X_all <- hfile_sc[['X']][,]
+rownames(X_all) <- var$gene_id
+X_all <- X_all[gene_data$gene, ]
+X_ntc <- X_all[,cells_ntc]
+
+G_hat <- t(matrix(graph_data$G_hat, nrow=D, ncol=D))
+rownames(G_hat) <- gene_data$gene
+colnames(G_hat) <- gene_data$gene
+
+calc_r2 <- function(G, gene, X_ntc, X_all, obs){
+  G_test <- G[, gene]
+  nzgenes <- names(G_test[abs(G_test) > 0])
+  grab_genes <- c(gene, nzgenes)
+
+  cells_eff <- obs$gene_id %in% nzgenes
+  X_ntc_sub <- X_ntc[grab_genes, ]
+  X_eff <- X_all[grab_genes, cells_eff]
+
+  X_design <- cbind(X_ntc_sub, X_eff)
+  res <- summary(lm(X_design[1,] ~ t(X_design[2:length(grab_genes), ]) + 0))$r.squared
+  
+  return(data.frame(gene = gene, r2 = res, row.names=gene))
 }
 
-gene_blood_ave_eff <- purrr::map(gene_data$gene, blood_ave_effect) %>% list_rbind()
-gene_blood_ave_eff$gene_name <- gene_data$gene_name
-```
-
-
-```{r, fig.width=3.5, fig.height=2}
-gene_blood_ave_eff %>% select(-starts_with('gene')) %>% cor %>% as_tibble(rownames="index") %>% pivot_longer(-index, values_to="Cor") %>%
-  mutate(CorP = 100*Cor) %>%
-  ggplot(aes(x=index,y=name)) + geom_raster(aes(fill=CorP)) + scale_fill_gradient2(limits=c(0,100)) +
-  geom_text(aes(index, name, label=round(CorP, 2)), colour = "white", check_overlap = TRUE, size=3.5) + theme_minimal() +
-  labs(x=NULL, y=NULL, fill="Cor %") + theme(legend.key.size = unit(0.4, 'cm'), legend.title = element_text(size=10))
-```
-
-
-# ```{r}
-# cutoff <- 10
-# options(digits=3)
-# gene_blood_ave_eff %>% mutate(rnk_plt = min_rank(desc(mean_plt_eff)),
-#                               rnk_ret = min_rank(desc(mean_ret_eff)),
-#                               rnk_rbc = min_rank(desc(mean_rbc_eff)),
-#                               rnk_wbc = min_rank(desc(mean_wbc_eff))) %>%
-#   filter((rnk_wbc <= cutoff)|(rnk_rbc <= cutoff)|(rnk_ret <= cutoff)|(rnk_plt <= cutoff)) %>%
-#   arrange(rnk_plt+rnk_ret+rnk_ret+rnk_wbc) %>%
-#   select(gene_name, ends_with('eff'))
-# ```
-# 
-# 
-# 
-# ```{r}
-# cut = 0.1
-# 
-# plt_high_genes <- unique(filter(graph_data, Exposure != Outcome, Outcome %in% plt_genes, abs(U_hat) > 0.1)$Exposure)
-# ret_high_genes <- unique(filter(graph_data, Exposure != Outcome, Outcome %in% ret_genes, abs(U_hat) > 0.1)$Exposure)
-# rbc_high_genes <- unique(filter(graph_data, Exposure != Outcome, Outcome %in% rbc_genes, abs(U_hat) > 0.1)$Exposure)
-# wbc_high_genes <- unique(filter(graph_data, Exposure != Outcome, Outcome %in% wbc_genes, abs(U_hat) > 0.1)$Exposure)
-# 
-# blood_high_genes <- union(union(plt_high_genes, ret_high_genes), union(rbc_high_genes, wbc_high_genes))
-# ```
-
-
-```{r}
-trait_genes <- list('plt'=plt_genes, 'ret'=ret_genes, 'wbc'=wbc_genes, 'rbc'=rbc_genes)
-
-calc_trait_distances <- function(trait1, trait2){
-  subset_wi <- filter(graph_data, Exposure %in% trait_genes[[trait1]], Outcome %in% trait_genes[[trait1]])
-  if(trait2 != 'all'){
-    subset_bt <- filter(graph_data, (Exposure %in% trait_genes[[trait1]] & Outcome %in% trait_genes[[trait2]])|(Exposure %in% trait_genes[[trait2]] & Outcome %in% trait_genes[[trait1]]))
+shuffle_r2 <- function(res, G, X_ntc, X_all, obs, shuffle = 0){
+  cat(paste0("Shuffle iter: ", shuffle, "\n"))
+  G_shuff <- G
+  if(shuffle > 0){
+    permutation <- sample(nrow(G), nrow(G))
+    rownames(G_shuff) <- rownames(G)[permutation]
+    colnames(G_shuff) <- colnames(G)[permutation]
   }
-  else{
-    subset_bt <- filter(graph_data, !(Exposure %in% trait_genes[[trait1]]), !(Outcome %in% trait_genes[[trait1]]))
-  }
-  t_test_res <- t.test(subset_wi$path_length, subset_bt$path_length)
-  return(data.frame("trait1" = trait1, "trait2" = trait2,
-                    "path_length" = mean(subset_bt$path_length, na.rm=T),
-                    "sd" = sd(subset_bt$path_length, na.rm=T),
-                    "se" =sd(subset_bt$path_length, na.rm=T)/sqrt(length(subset_bt$path_length)),
-                    p = t_test_res$p.val))
+  shuff_res <- purrr::map(colnames(G_shuff), ~ calc_r2(G_shuff, .x, X_ntc, X_all, obs)) %>%
+    purrr::list_rbind()
+  return(shuff_res[res$gene,]$r2)
 }
 
-grid <- expand.grid(trait1=names(trait_genes), trait2=c(names(trait_genes), 'all')) 
+G_res <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs)) %>% purrr::list_rbind()
 
-bt_wi_distance <- purrr::map2(grid$trait1, grid$trait2, calc_trait_distances) %>% purrr::list_rbind()
-bt_wi_distance$p_adj <- p.adjust(bt_wi_distance$p)
+n_shuff <- 10000
+perm_res <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
+  shuffle_r2(G_res, G_hat, X_ntc, X_all, obs, i)
+
+# Calculate p-val for total variance explained
+alpha_p <- 0.01
+z_a <- qnorm(1-alpha_p)
+p_G_r2 <- mean(mean(G_res$r2) < colMeans(perm_res))
+ci_naive <- z_a*sqrt((p_G_r2*(1-p_G_r2))/n_shuff)
+p_G_r2_lo_naive <- p_G_r2 - ci_naive
+p_G_r2_hi_naive <- p_G_r2 + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*p_G_r2*(1-p_G_r2) + z_a**2)
+p_G_r2_lo <- (1/(1+z_a**2/n_shuff))*(p_G_r2 + z_a**2/(2*n_shuff) - pm)
+p_G_r2_hi <- (1/(1+z_a**2/n_shuff))*(p_G_r2 + z_a**2/(2*n_shuff) + pm)
+G_res$p_G_r2 <- p_G_r2
+G_res$p_G_r2_lo <- p_G_r2_lo
+G_res$p_G_r2_hi <- p_G_r2_hi
+
+# Calculate p-val per gene
+G_res$p_gene_r2 <- rowMeans(G_res$r2 < perm_res)
+ci_naive <- z_a*sqrt((G_res$p_gene_r2*(1 - G_res$p_gene_r2))/n_shuff)
+G_res$p_lo_naive <- G_res$p_gene_r2 - ci_naive
+G_res$p_hi_naive <- G_res$p_gene_r2 + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*G_res$p_gene_r2*(1-G_res$p_gene_r2) + z_a**2)
+G_res$p_lo <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2 + z_a**2/(2*n_shuff) - pm)
+G_res$p_hi <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2 + z_a**2/(2*n_shuff) + pm)
+G_res$p_fdr <- p.adjust(G_res$p_gene_r2, method='fdr')
+
+save(perm_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res.Rdata')
+save(G_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res.Rdata')
 ```
 
 
 ```{r}
-options(scipen=2)
-options(digits=4)
-bt_wi_distance %>% filter(trait2 != 'all') %>% arrange(trait1) %>% print(n=20)
+load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res.Rdata')
+load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res.Rdata')
 ```
 
+
+```{r, fig.width=3.4, fig.height=2.5}
+# Could correlate with CRISPR n_cells, effect size, etc
+plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res$p_fdr < .x)))
+plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
+  labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Essential screen network and data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp.png")
+
+plot_density <- tibble(r2_perm = colMeans(perm_res))
+plot_density %>% ggplot(aes(r2_perm)) + geom_density() + geom_vline(xintercept = mean(G_res$r2))
+
+plot_qq(dat=-log10(G_res$p_gene_r2), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
+  labs(title="Genes with signif var exp by the network\n Essential screen network and data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp_qq.png")
+
+tibble(null_cor=rowMeans(perm_res), eg_centrality=gene_data$eg_centrality) %>% 
+  ggplot(aes(null_cor, eg_centrality)) + geom_point() + theme_classic() +
+  labs(x="Var exp by random graphs", y="Eigencentrality") +
+  geom_smooth(method='lm', formula="y~x+0")
+ggsave("plots/null_var_eg.png")
+```
+
+
+
+```{r, fig.height=2, fig.width=3}
+gene_data %>% ggplot(aes(p_fdr, inst_beta)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+ggsave("plots/supp_fdr_beta.png")
+gene_data %>% ggplot(aes(p_fdr, n)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+ggsave("plots/supp_fdr_n.png")
+gene_data %>% ggplot(aes(p_fdr, out_deg)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+ggsave("plots/supp_fdr_out.png")
+gene_data %>% ggplot(aes(p_fdr, in_deg)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+ggsave("plots/supp_fdr_in.png")
+```
+
+
+
+```{r}
+# Can we do this with wps screen?
+k562_gwps_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_gwps_normalized_singlecell_01.h5ad'
+ntc = 'non-targeting'
+
+hfile_gwps <- hdf5r::H5File$new(k562_gwps_fn, "r")
+var_gwps <- inspre::parse_hdf5_df(hfile_gwps, 'var')
+obs_gwps <- inspre::parse_hdf5_df(hfile_gwps, 'obs')
+cells_ntc <- obs_gwps$gene == ntc
+use_genes <- var_gwps$gene_id %in% gene_data$gene
+X_all <- hfile_gwps[['X']][use_genes, ]
+rownames(X_all) <- var_gwps$gene_id[var_gwps$gene_id %in% gene_data$gene]
+
+X_all <- X_all[gene_data$gene, ]
+X_ntc <- X_all[,cells_ntc]
+
+G_res_gwps <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs_gwps)) %>% purrr::list_rbind()
+
+
+n_shuff <- 10000
+perm_res_gwps <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
+  shuffle_r2(G_res_gwps, G_hat, X_ntc, X_all, obs_gwps, i)
+
+# Calculate p-val for total variance explained
+alpha_p <- 0.01
+z_a <- qnorm(1-alpha_p)
+p_G_r2 <- mean(mean(G_res_gwps$r2) < colMeans(perm_res_gwps))
+ci_naive <- z_a*sqrt((p_G_r2*(1-p_G_r2))/n_shuff)
+p_G_r2_lo_naive <- p_G_r2 - ci_naive
+p_G_r2_hi_naive <- p_G_r2 + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*p_G_r2*(1-p_G_r2) + z_a**2)
+p_G_r2_lo <- (1/(1+z_a**2/n_shuff))*(p_G_r2 + z_a**2/(2*n_shuff) - pm)
+p_G_r2_hi <- (1/(1+z_a**2/n_shuff))*(p_G_r2 + z_a**2/(2*n_shuff) + pm)
+G_res_gwps$p_G_r2 <- p_G_r2
+G_res_gwps$p_G_r2_lo <- p_G_r2_lo
+G_res_gwps$p_G_r2_hi <- p_G_r2_hi
+
+# Calculate p-val per gene
+G_res_gwps$p_gene_r2 <- rowMeans(G_res_gwps$r2 < perm_res_gwps)
+ci_naive <- z_a*sqrt((G_res_gwps$p_gene_r2*(1 - G_res_gwps$p_gene_r2))/n_shuff)
+G_res_gwps$p_lo_naive <- G_res_gwps$p_gene_r2 - ci_naive
+G_res_gwps$p_hi_naive <- G_res_gwps$p_gene_r2 + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*G_res_gwps$p_gene_r2*(1-G_res_gwps$p_gene_r2) + z_a**2)
+G_res_gwps$p_lo <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2 + z_a**2/(2*n_shuff) - pm)
+G_res_gwps$p_hi <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2 + z_a**2/(2*n_shuff) + pm)
+G_res_gwps$p_fdr <- p.adjust(G_res_gwps$p_gene_r2, method='fdr')
+
+save(perm_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res_gwps.Rdata')
+save(G_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res_gwps.Rdata')
+```
+
+
+```{r}
+load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res_gwps.Rdata')
+load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res_gwps.Rdata')
+```
+
+
+```{r, fig.width=3.4, fig.height=2.5}
+plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res_gwps$p_fdr < .x)))
+plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
+  labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp_gwps.png")
+
+plot_density <- tibble(r2_perm = colMeans(perm_res_gwps))
+
+plot_density %>% ggplot(aes(r2_perm)) + geom_density() + geom_vline(xintercept = mean(G_res_gwps$r2))
+plot_qq(dat=-log10(G_res_gwps$p_gene_r2), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
+  labs(title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp_qq_gwps.png")
+```
+
+
+
+
+
+
+```{r}
+k562_norm_sc_fn_gwps = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_gwps_normalized_singlecell_01.h5ad'
+save_dag_res_gwps = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_dag.Rdata'
+save_guide_res_gwps = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_guide_data.Rdata'
+save_gene_data_gwps = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gene_all_data.Rdata'
+save_graph_data_gwps = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_graph_data.Rdata'
+```
+
+
+```{r}
+min_nz <- 0.03/2
+load(save_dag_res_gwps)
+# best_lambda <- which.min(res_dag$eps_hat_G)
+best_lambda <- 7 # largest D_hat > 0.01
+R_hat_gwps <- res_dag$R_hat
+SE_hat_gwps <- res_dag$SE_hat
+G_hat_gwps <- res_dag$G_hat[,,best_lambda]
+G_hat_gwps[abs(c(G_hat_gwps)) < min_nz] <- 0
+U_hat_gwps <- res_dag$U[,,best_lambda]
+V_hat_gwps <- res_dag$V[,,best_lambda]
+H_hat_gwps <- U_hat * diag(V_hat)
+
+hfile_sc_gwps <- hdf5r::H5File$new(k562_norm_sc_fn_gwps, "r")
+var_gwps <- inspre::parse_hdf5_df(hfile_sc_gwps, 'var')
+
+load(save_guide_res_gwps)
+```
+
+
+```{r}
+genes_gwps <- colnames(G_hat_gwps)
+rownames(R_hat_gwps) <- genes_gwps
+rownames(G_hat_gwps) <- genes_gwps
+rownames(U_hat_gwps) <- genes_gwps
+colnames(U_hat_gwps) <- genes_gwps
+
+R_long_gwps <- tidyr::pivot_longer(tibble::as_tibble(R_hat_gwps, rownames="Exposure"), -Exposure,
+                              names_to="Outcome", values_to = "R_hat")
+SE_long_gwps <- tidyr::pivot_longer(tibble::as_tibble(SE_hat_gwps, rownames="Exposure"), -Exposure,
+                              names_to="Outcome", values_to = "SE_hat")
+G_long_gwps <- tidyr::pivot_longer(tibble::as_tibble(G_hat_gwps, rownames="Exposure"), -Exposure,
+                              names_to="Outcome", values_to = "G_hat")
+U_long_gwps <- tidyr::pivot_longer(tibble::as_tibble(U_hat_gwps, rownames = "Exposure"), -Exposure,
+                              names_to = "Outcome", values_to = "U_hat")
+graph_data_gwps <- R_long_gwps
+graph_data_gwps$SE_hat <- SE_long_gwps$SE_hat
+graph_data_gwps$G_hat <- G_long_gwps$G_hat
+graph_data_gwps$U_hat <- U_long_gwps$U_hat
+
+graph_data_gwps <- graph_data_gwps %>%
+  dplyr::mutate(Z = R_hat/SE_hat, p = 2*(1-pnorm(abs(Z))), p_fdr = p.adjust(p, method='fdr'))
+```
+
+
+```{r}
+gene_data_gwps <- as_tibble_col(genes_gwps, column_name = "gene")
+gene_data_gwps <- gene_data_gwps %>% dplyr::left_join(
+  select(var_gwps, gene_id, gene_name, cv, mean, std), by=c("gene" = "gene_id")) # %>%
+  # dplyr::left_join(select(guide_effects_gwps, target, inst_beta, inst_cor, n), by=c("gene"="target"))
+# gene_data_gwps <- gene_data %>% dplyr::left_join(enframe(genes[plot_order], name="order", value="gene"), by="gene")
+```
+
+
+```{r}
+scale_factor <- 2
+# graph <- make_igraph(G_hat, min_edge_value = 0.05, scale_factor = scale_factor)
+graph_gwps <- make_igraph(G_hat_gwps, min_edge_value = 0.015, scale_factor = scale_factor)
+
+distances_gwps <- igraph::distances(graph_gwps, mode = "out")
+distances_long_gwps <- tidyr::pivot_longer(
+  as_tibble(distances_gwps, rownames = "Exposure"), -Exposure,
+  names_to = "Outcome", values_to = "log_scale_dist")
+
+graph_data_gwps$G_path_scaled <- 1/exp(distances_long_gwps$log_scale_dist)
+# graph_data$path_length <- purrr::pmap_int(
+for_path <- graph_data_gwps %>% filter(G_path_scaled > 0) %>% select(Exposure, Outcome, G_path_scaled)
+
+for_path$path <- purrr::pmap(
+  for_path,
+  function(Exposure, Outcome, G_path_scaled){
+    # split <- strsplit(Exposure, "_", fixed=TRUE)
+    # as.integer(ifelse(G_path > 0, length(igraph::shortest_paths(graph, split[[1]][length(split[[1]])], Outcome, mode = "out")$vpath[[1]]) - 1, NA))
+    # as.integer(ifelse(G_path_scaled > 0, length(igraph::shortest_paths(graph, Exposure, Outcome, mode = "out")$vpath[[1]]) - 1, NA))
+    names(igraph::shortest_paths(graph_gwps, Exposure, Outcome, mode = "out")$vpath[[1]])
+  }
+)
+
+graph_data_gwps <- dplyr::left_join(select(graph_data_gwps, -G_path_scaled), for_path, by = c("Exposure", "Outcome"))
+graph_data_gwps$path_length <- map_int(graph_data_gwps$path, ~ length(.x)-1)
+graph_data_gwps$path_length <- ifelse(graph_data_gwps$path_length==-1, NA, graph_data_gwps$path_length)
+graph_data_gwps <- graph_data_gwps %>% dplyr::mutate(G_path = ifelse(G_path_scaled > 0, G_path_scaled*(scale_factor**path_length), 0),
+                       eff_explained = ifelse((Exposure != Outcome) & (G_path > 0), abs(G_path/U_hat), NA))
+gene_data_gwps$out_deg <- igraph::degree(graph_gwps, mode = "out")[gene_data_gwps$gene]
+gene_data_gwps$in_deg <- igraph::degree(graph_gwps, mode = "in")[gene_data_gwps$gene]
+gene_data_gwps$deg <- igraph::degree(graph_gwps, mode = "all")[gene_data_gwps$gene]
+gene_data_gwps$bt_centrality <- igraph::betweenness(graph_gwps, normalized = TRUE)
+gene_data_gwps$eg_centrality <- igraph::eigen_centrality(graph_gwps)$vector
+
+
+gene_data_gwps <- gene_data_gwps %>% dplyr::left_join(gene_annotations_JM, by=c("gene_name" ="gene"))
+gene_data_gwps <- gene_data_gwps %>% dplyr::left_join(gene_annotations_MM, by=c("gene_name" ="gene"))
+gene_data_gwps <- mutate(gene_data_gwps, eg_cent_mod = if_else(
+  eg_centrality==1, 0.999, if_else(eg_centrality==0, 0.001, eg_centrality)))
+gene_data <- mutate(gene_data, bt_cent_mod = if_else(
+  bt_centrality==1, 0.999, if_else(bt_centrality==0, 0.001, bt_centrality)))
+
+save(gene_data_gwps, file=save_gene_data_gwps)
+save(graph_data_gwps, file=save_graph_data_gwps)
+```
+
+
+```{r}
+load(save_graph_data_gwps)
+load(save_gene_data_gwps)
+```
+
+```{r, fig.width=2.7, fig.height=2}
+graph_data_gwps %>% filter(!is.na(path_length), Exposure != Outcome, p_fdr < 0.05) %>%
+  ggplot(aes(x=path_length)) + geom_bar(aes(y=..count../sum(..count..))) +
+  labs( title = "Shortest path between nodes", x = "Path length", y = "Proportion") + 
+  theme_classic() +
+  theme(plot.title = element_text(size=10), axis.title = element_text(size=10)) +
+#        axis.ticks.y = element_blank(), axis.text.y=element_blank()) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n=6))
+ggsave("plots/shortest_path_gwps.png")
+
+
+graph_data_gwps %>% filter(!is.na(eff_explained), p_fdr < 0.05) %>% ggplot(aes(x=100*eff_explained)) +
+  geom_histogram(aes(y=..count../sum(..count..)), bins = 50) + xlim(0, 150) +
+  labs(title = "ACE explained by shortest path",
+       x = "Percentage of effect explained", y = NULL) +
+  theme_classic() + 
+  theme(plot.title = element_text(size=10), axis.title = element_text(size=10)) + ylim(0, 0.3)
+ggsave("plots/ace_explained_gwps.png")
+
+gene_data_gwps %>% ggplot(aes(x = in_deg)) + geom_histogram() + 
+  labs(x = "In-degree", y = "Count", title = "In-degree distribution") +
+  theme_classic() + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+ggsave("plots/in_degree_gwps.png")
+
+gene_data_gwps %>% ggplot(aes(x = out_deg)) + geom_histogram() + 
+  labs( x = "Out-degree", y = "Count", title = "Out-degree distribution") +
+  theme_classic() + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+ggsave("plots/out_degree_gwps.png")
+
+gene_data_gwps %>% ggplot(aes(x = eg_centrality)) + geom_histogram() + 
+  labs( x = "Eigencentrality", y = "Count", title = "Eigencentrality distribution") +
+  theme_classic() + theme(plot.title = element_text(size=10), axis.title = element_text(size=10))
+ggsave("plots/eigencentrality_gwps.png")
+```
+
+
+```{r}
+all_beta_res_gwps <- purrr::map(colnames(gene_annotations_MM)[2:17], ~ calc_beta_res(.x, gene_data_gwps))
+MM_annot_res_gwps <- purrr::map(all_beta_res, get_coeff) %>% list_rbind()
+names(all_beta_res_gwps) <- colnames(gene_annotations_MM)[2:17]
+# MM_annot_res_gwps$p_adj <- p.adjust(MM_annot_res$Pr...z.., method='holm')
+# readr::write_csv(MM_annot_res, file = "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/mm_annot_res.csv")
+MM_annot_res_gwps # %>% arrange(p_adj)
+```
+
+
+
+```{r, fig.width=3.4, fig.height=2.5}
+line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res_gwps$gnomAD_pLI, newdata = data.frame(gnomAD_pLI=seq(0, 1, .01))))
+gene_data_gwps %>% ggplot(aes(x=gnomAD_pLI, y=eg_centrality)) + geom_point(size=0.5) +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('GW Net Eigencentrality')
+ggsave("plots/pli_gwps.png")
+
+```
+
+
+```{r, fig.width=2.7, fig.height=2}
+line_data = data.frame(x=seq(0, 7500, 1), y=predict(all_beta_res_gwps$n_ppis, newdata = data.frame(n_ppis=seq(0, 7500, 1))))
+gene_data_gwps %>% ggplot(aes(x=n_ppis, y=eg_centrality)) + geom_point() +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1)  + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/n_ppis_gwps_supp.png")
+
+line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res_gwps$gnomAD_pLI, newdata = data.frame(gnomAD_pLI=seq(0, 1, .01))))
+gene_data_gwps %>% ggplot(aes(x=gnomAD_pLI, y=eg_centrality)) + geom_point() +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/pli_gwps_supp.png")
+
+line_data = data.frame(x=seq(0, 0.64, .01), y=predict(all_beta_res_gwps$sHet, newdata = data.frame(sHet=seq(0, 0.64, .01))))
+gene_data_gwps %>% ggplot(aes(x=sHet, y=eg_centrality)) + geom_point() +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/shet_gwps_supp.png")
+
+line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res_gwps$HI_Index, newdata = data.frame(HI_Index=seq(0, 1, .01))))
+gene_data_gwps %>% ggplot(aes(x=HI_Index, y=eg_centrality)) + geom_point() +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/hi_gwps_index_supp.png")
+
+line_data = data.frame(x=seq(0, 1, .01), y=predict(all_beta_res_gwps$pHaplo, newdata = data.frame(pHaplo=seq(0, 1, .01))))
+gene_data_gwps %>% ggplot(aes(x=pHaplo, y=eg_centrality)) + geom_point() +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/phaplo_gwps_supp.png")
+
+line_data = data.frame(x=seq(0, 2, .01), y=predict(all_beta_res_gwps$gnomAD_LOEUF, newdata = data.frame(gnomAD_LOEUF=seq(0, 2, .01))))
+gene_data_gwps %>% ggplot(aes(x=gnomAD_LOEUF, y=eg_centrality)) + geom_point() +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/loeuf_gwps_supp.png")
+
+line_data = data.frame(x=seq(0, 2, .01), y=predict(all_beta_res_gwps$gnomAD_MisOEUF, newdata = data.frame(gnomAD_MisOEUF=seq(0, 2, .01))))
+gene_data_gwps %>% ggplot(aes(x=gnomAD_MisOEUF, y=eg_centrality)) + geom_point() +
+  geom_line(data=line_data, aes(x=x, y=y), color='blue', linewidth=1) + theme_classic() + ylab('Eigencentrality')
+ggsave("plots/misoeuf_gwps_supp.png")
+```
+
+
+
+```{r}
+common_genes <- intersect(rownames(G_hat), rownames(G_hat_gwps))
+
+cor_R <- cor(c(R_hat[common_genes, common_genes]), c(R_hat_gwps[common_genes, common_genes]), use = 'pairwise.complete.obs')
+cor_U <- cor(c(U_hat[common_genes, common_genes]), c(U_hat_gwps[common_genes, common_genes]), use = 'pairwise.complete.obs')
+nU <- length(U_hat[common_genes, common_genes])
+nR <- sum(!is.na(R_hat[common_genes, common_genes]*R_hat_gwps[common_genes, common_genes]))
+sU2 <- (1-cor_U**2)/(nU-2)
+sR2 <- (1-cor_R**2)/(nR-2)
+t_stat <- (cor_U-cor_R)/sqrt(sU2 + sR2)
+nu <- (sU2/nU + sR2/nR)**2/( sU2**2/(nU**2*(nU-1)) +  sR2**2/(nR**2*(nR-1)))
+1-pt(t_stat, df=nu)
+```
+
+
+```{r, fig.width=3.4, fig.height=2.5}
+tibble(ESS=gene_data$eg_centrality[common_genes],
+       GWPS=gene_data_gwps$eg_centrality[common_genes]) %>%
+  ggplot(aes(ESS, GWPS)) + geom_point() + geom_smooth(method='lm', formula = "y~x+0") +
+  theme_classic() + ylab('GW Eigencentrality') + xlab('Ess Eigencentrality')
+ggsave("plots/eg_comp.png")
+```
+
+
+```{r}
+# Getting around that igraph doesn't like negative edge weights
+G1 <- G_hat
+G2 <- G1 %*% G_hat
+G3 <- G2 %*% G_hat
+G4 <- G3 %*% G_hat
+G5 <- G4 %*% G_hat
+G6 <- G5 %*% G_hat
+
+G_1D <- diag(nrow(G1)) + G1
+G_2D <- G_1D + G2
+G_3D <- G_2D + G3
+G_4D <- G_3D + G4
+G_5D <- G_4D + G5
+G_6D <- G_5D + G6
+```
+
+
+```{r}
+ess_only_genes <- setdiff(rownames(G_hat), common_genes)
+completions <- pmap_dbl(list(graph_data$path, graph_data$path_length, graph_data$Exposure, graph_data$Outcome),
+                             function(path, path_length, Exposure, Outcome){
+                               if(prod(!is.na(path_length), path_length > 1, na.rm=T)){
+                                 # print(path[2:path_length])
+                                 if(all(path[2:path_length] %in% ess_only_genes)){
+                                   return(get(paste0("G_", path_length, "D"))[Exposure, Outcome])
+                                 } else {
+                                   return(0)
+                                 }
+                               }else{
+                                 return(0)
+                               }
+                             }
+                            )
+G_comp <- G_hat + t(matrix(completions, nrow=nrow(G_hat)))
+G_comp <- G_comp[common_genes, common_genes]
+# completions_gwps[is.na(completions_gwps)] <- 0
+```
+
+
+```{r}
+# Getting around that igraph doesn't like negative edge weights
+G1 <- G_hat_gwps
+G2 <- G1 %*% G_hat_gwps
+G3 <- G2 %*% G_hat_gwps
+G4 <- G3 %*% G_hat_gwps
+G5 <- G4 %*% G_hat_gwps
+G6 <- G5 %*% G_hat_gwps
+
+G_1D <- diag(nrow(G1)) + G1
+G_2D <- G_1D + G2
+G_3D <- G_2D + G3
+G_4D <- G_3D + G4
+G_5D <- G_4D + G5
+G_6D <- G_5D + G6
+```
+
+
+```{r}
+graph_data_gwps$G_2D <- tidyr::pivot_longer(tibble::as_tibble(G_2D, rownames="Exposure"), -Exposure, names_to="Outcome", values_to = "G_2D")$G_2D
+graph_data_gwps$G_3D <- tidyr::pivot_longer(tibble::as_tibble(G_3D, rownames="Exposure"), -Exposure, names_to="Outcome", values_to = "G_3D")$G_3D
+graph_data_gwps$G_4D <- tidyr::pivot_longer(tibble::as_tibble(G_4D, rownames="Exposure"), -Exposure, names_to="Outcome", values_to = "G_4D")$G_4D
+graph_data_gwps$G_5D <- tidyr::pivot_longer(tibble::as_tibble(G_5D, rownames="Exposure"), -Exposure, names_to="Outcome", values_to = "G_5D")$G_5D
+graph_data_gwps$G_6D <- tidyr::pivot_longer(tibble::as_tibble(G_6D, rownames="Exposure"), -Exposure, names_to="Outcome", values_to = "G_6D")$G_6D
+graph_data_gwps$G_7D <- tidyr::pivot_longer(tibble::as_tibble(G_7D, rownames="Exposure"), -Exposure, names_to="Outcome", values_to = "G_7D")$G_7D
+```
+
+
+```{r}
+gwps_only_genes <- setdiff(rownames(G_hat_gwps), common_genes)
+completions_gwps <- pmap_dbl(list(graph_data_gwps$path, graph_data_gwps$path_length, graph_data_gwps$Exposure, graph_data_gwps$Outcome),
+                             function(path, path_length, Exposure, Outcome){
+                               if(prod(!is.na(path_length), path_length > 1, na.rm=T)){
+                                 # print(path[2:path_length])
+                                 if(all(path[2:path_length] %in% gwps_only_genes)){
+                                   return(get(paste0("G_", path_length, "D"))[Exposure, Outcome])
+                                 } else {
+                                   return(0)
+                                 }
+                               }else{
+                                 return(0)
+                               }
+                             }
+                            )
+G_comp_gwps <- G_hat_gwps + t(matrix(completions_gwps, nrow=nrow(G_hat_gwps)))
+G_comp_gwps <- G_comp_gwps[common_genes, common_genes]
+# completions_gwps[is.na(completions_gwps)] <- 0
+```
+
+
+```{r}
+calc_metrics(G_comp, G_comp_gwps, eps=0.015)
+```
