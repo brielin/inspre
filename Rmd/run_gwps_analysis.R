@@ -10,10 +10,14 @@ ncores=16
 # save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_dag.Rdata'
 # save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_nodag.Rdata'
 # save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
-k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_gwps_normalized_singlecell_01.h5ad'
-save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_dag.Rdata'
-save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_nodag.Rdata'
-save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_guide_data.Rdata'
+# k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_gwps_normalized_singlecell_01.h5ad'
+# save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_dag.Rdata'
+# save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_nodag.Rdata'
+# save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_guide_data.Rdata'
+k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/rpe1_normalized_singlecell_01.h5ad'
+save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_res_dag.Rdata'
+save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_res_nodag.Rdata'
+save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_guide_data.Rdata'
 
 
 # At some point this gets auto-converted to 'non.targeting' by R...

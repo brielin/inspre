@@ -99,6 +99,21 @@ ggsave("plots/R_hat.png")
 ```
 
 
+```{r, fig.width=1.5, fig.asp=1}
+ggplot(graph_data, aes(y=Exposure, x=Outcome)) + # geom_tile(aes(fill=R_plot)) +
+  geom_raster(aes(fill=sign(R_plot)*sqrt(abs(R_plot)))) +
+  scale_x_discrete(limits = genes[(plot_order)], labels = NULL) +
+  scale_y_discrete(limits = genes[rev(plot_order)], labels = NULL) +
+  scale_fill_gradient2(limits = c(-1, 1))  +
+  labs(x = NULL, y = NULL, title = NULL) +
+  theme(plot.title = element_text(size=10), axis.ticks=element_blank(),
+        axis.title = element_text(size=10), legend.title = element_text(size=10),
+        plot.margin = unit(c(0.5,0.5,0.5,0.5), 'mm')) +
+  guides(fill=FALSE) + coord_fixed()
+ggsave("plots/R_hat_grant.png")
+```
+
+
 ```{r, fig.width=3.5, fig.asp=1}
 ggplot(graph_data, aes(y=Exposure, x=Outcome)) + # geom_tile(aes(fill=U_plot)) +
   geom_raster(aes(fill=sign(U_hat)*sqrt(abs(U_hat)))) +
