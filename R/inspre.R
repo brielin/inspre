@@ -594,52 +594,26 @@ multiple_iv_reg <- function(target, .X, .targets){
 }
 
 
-multiple_iv_reg_dumb_row <- function(target, .X, .targets){
+multiple_iv_reg_UV <- function(target, .X, .targets){
+  inst_obs <- .targets == target
+  control_obs <- .targets == "control"
+  n_target <- sum(inst_obs)
+  n_control <- sum(control_obs)
+  n_total <- n_target + n_control
+  X_target <- .X[inst_obs, ]
+  X_control <- .X[control_obs, ]
   this_feature <- which(colnames(.X) == target)
-  # X <- cbind(.X[, this_feature], 1)
-  # Y <- .X[, -this_feature]
-  # Z <- cbind(.targets == target, 1)
-  rows <- .targets %in% c(target, "control")
-  X <- cbind(.X[rows, this_feature], 1)
-  Y <- .X[rows, -this_feature]
-  Z <- cbind(.targets == target, 1)[rows, ]
-
-  X_hat <- Z %*% solve(crossprod(Z), crossprod(Z, X))
-  beta_hat <- solve(crossprod(X_hat), crossprod(X_hat, Y))
-  u_hat <- Y - X %*% beta_hat
-  C <- colSums(u_hat**2)/nrow(X)
-  C <- C*solve(crossprod(X_hat))[1,1]
-  beta_se <- sqrt(C)
-
-  beta_hat <- append(beta_hat[1,], 1, after=this_feature-1)
-  beta_se <-append(beta_se, 0, after=this_feature-1)
-
-  names(beta_hat) <- paste(paste0("V", 1:D), "beta_hat", sep="_")
-  names(beta_se) <- paste(paste0("V", 1:D), "se_hat", sep="_")
-  return(as.data.frame(c(list(target = target, beta_obs = 0), as.list(c(beta_hat, beta_se)))))
-}
-
-multiple_iv_reg_dumb <- function(target, .X, .targets){
-  D = ncol(.X)
-  this_feature <- which(colnames(.X) == target)
-  X <- cbind(.X[, this_feature], 1)
-  Y <- .X[, -this_feature]
-  Z <- cbind(.targets == target, 1)
-
-  beta_obs <- solve(crossprod(Z), crossprod(Z, X))
-  X_hat <- Z %*% beta_obs
-  beta_hat <- solve(crossprod(X_hat), crossprod(X_hat, Y))
-  u_hat <- Y - X %*% beta_hat
-  C <- colSums(u_hat**2)/nrow(X)
-  C <- C*solve(crossprod(X_hat))[1,1]
-  beta_se <- sqrt(C)
-
-  beta_hat <- append(beta_hat[1,], 1, after=this_feature-1)
-  beta_se <-append(beta_se, 0, after=this_feature-1)
-
-  names(beta_hat) <- paste(paste0("V", 1:D), "beta_hat", sep="_")
-  names(beta_se) <- paste(paste0("V", 1:D), "se_hat", sep="_")
-  return(as.data.frame(c(list(target = target, beta_obs = beta_obs[1,1]), as.list(c(beta_hat, beta_se)))))
+  X_exp_target <- X_target[, this_feature]
+  X_exp_control <- X_control[, this_feature]
+  beta_inst_obs <- sum(X_exp_target)/n_target
+  sums_target <- colSums(X_target)
+  beta_hat <- sums_target/sums_target[this_feature]
+  resid <- rbind(X_target - outer(X_exp_target, beta_hat), X_control - outer(X_exp_control, beta_hat))
+  V_hat <- (t(resid)%*%resid)/nrow(resid)
+  se_hat <- sqrt(diag(V_hat)/(n_target*beta_inst_obs**2))
+  names(beta_hat) <- paste(names(beta_hat), "beta_hat", sep="_")
+  names(se_hat) <- paste(names(se_hat), "se_hat", sep="_")
+  return(beta_se=as.data.frame(c(list(target = target, beta_obs = beta_inst_obs), as.list(c(beta_hat, se_hat)))), U_i=1/n_target*beta_inst_obs**2, V_hat=V_hat)
 }
 
 

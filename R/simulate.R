@@ -165,7 +165,7 @@ generate_data_knockout <- function(G, N_cont, N_int, noise='gaussian'){
 }
 
 
-generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian'){
+generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian', normalize=TRUE){
   D <- nrow(G)
   int_sizes <- rep(N_int, D) # rnbinom(D, mu=N_int - N_int/10, size=N_int/10) + N_int/10
 
@@ -188,19 +188,24 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
     stop('NotImplementedError')
   }
   Y <- (XB + eps) %*% solve(diag(D) - G)
-  # This mimics perturb-seq normalization
-  mu_cont <- colMeans(Y[1:N_cont, ])
-  sd_cont <- apply(Y[1:N_cont, ], 2, sd)
-  Y <- t((t(Y) - mu_cont)/sd_cont)
+  if(normalize){
+    # This mimics perturb-seq normalization
+    mu_cont <- colMeans(Y[1:N_cont, ])
+    sd_cont <- apply(Y[1:N_cont, ], 2, sd)
+    Y <- t((t(Y) - mu_cont)/sd_cont)
 
-  # Also need to normalize the graph
-  R <- get_tce(get_observed(G), normalize=sd_cont)
-  G <- get_direct(R)$G
-  int_beta <- int_beta/sd_cont
+    # Also need to normalize the graph
+    R <- get_tce(get_observed(G), normalize=sd_cont)
+    G <- get_direct(R)$G
+    int_beta <- int_beta/sd_cont
+    # TODO: update eps_vars
+  } else{
+    R <- get_tce(get_observed(G))
+  }
 
   colnames(Y) <- paste0("V", 1:D)
   targets <- c(rep("control", N_cont), paste0("V", rep(1:D, times=int_sizes)))
-  return(list(Y = Y, targets = targets, G = G, R = R, int_beta=int_beta))
+  return(list(Y = Y, targets = targets, G = G, R = R, int_beta=int_beta, eps_vars=eps_vars))
 }
 
 
@@ -258,7 +263,7 @@ generate_dataset <- function(D, N_cont, N_int, int_beta=-2,
 
   return(list(Y=Y[1:(N_cont+N_int*D), 1:D], targets=data$targets[1:(N_cont+N_int*D)], R=data$R[1:D, 1:D],
               G=G[1:D, 1:D], var_all=var_all, var_obs=var_obs,
-              var_conf=var_conf, var_eps=var_eps, int_beta=data$int_beta))
+              var_conf=var_conf, var_eps=var_eps, int_beta=data$int_beta, eps_vars=data$eps_vars))
 }
 
 
