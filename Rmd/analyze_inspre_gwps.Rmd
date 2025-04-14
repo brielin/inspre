@@ -463,6 +463,7 @@ shuffle_r2 <- function(res, G, X_ntc, X_all, obs, shuffle = 0){
 
 G_res <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs)) %>% purrr::list_rbind()
 
+doParallel::registerDoParallel(cores=28)
 n_shuff <- 10000
 perm_res <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
   shuffle_r2(G_res, G_hat, X_ntc, X_all, obs, i)
@@ -486,7 +487,7 @@ G_res$p_G_r2 <- p_G_r2
 G_res$p_G_r2_lo <- p_G_r2_lo
 G_res$p_G_r2_hi <- p_G_r2_hi
 
-# Calculate p-val per gene
+# Calculate p-val per gene (random graph)
 G_res$p_gene_r2 <- rowMeans(G_res$r2 < perm_res)
 ci_naive <- z_a*sqrt((G_res$p_gene_r2*(1 - G_res$p_gene_r2))/n_shuff)
 G_res$p_lo_naive <- G_res$p_gene_r2 - ci_naive
@@ -540,30 +541,10 @@ tibble(null_cor=rowMeans(perm_res), eg_centrality=gene_data$eg_centrality) %>%
   labs(x="Var exp by random graphs", y="Eigencentrality") +
   geom_smooth(method='lm', formula="y~x+0")
 ggsave("plots/null_var_eg.png")
-
-
-plot_fdr_edge <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res$p_fdr_edge < .x)))
-plot_fdr_edge %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
-  labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Essential screen network and data") +
-  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
-ggsave("plots/var_exp_appeal.png")
-
-plot_qq(dat=-log10(G_res$p_gene_r2_edge), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
-  labs(title="Genes with signif var exp by the network\n Essential screen network and data") +
-  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
-ggsave("plots/var_exp_qq_appeal.png")
-
-tibble(null_cor=rowMeans(rand_res), eg_centrality=gene_data$eg_centrality) %>% 
-  ggplot(aes(null_cor, eg_centrality)) + geom_point() + theme_classic() +
-  labs(x="Var exp by random genes", y="Eigencentrality") +
-  geom_smooth(method='lm', formula="y~x+0")
-ggsave("plots/null_var_appeal.png")
-
 ```
 
 
 ```{r, fig.height=2, fig.width=3}
-gene_data$p_fdr <- G_res$p_fdr
 gene_data %>% ggplot(aes(p_fdr, inst_beta)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
 ggsave("plots/supp_fdr_beta.png")
 gene_data %>% ggplot(aes(p_fdr, n)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
@@ -574,18 +555,6 @@ gene_data %>% ggplot(aes(p_fdr, in_deg)) + geom_point() + theme_classic() + them
 ggsave("plots/supp_fdr_in.png")
 ```
 
-
-```{r, fig.height=2, fig.width=3}
-gene_data$p_fdr_edge <- G_res$p_fdr_edge
-gene_data %>% ggplot(aes(p_fdr_edge, inst_beta)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
-# ggsave("plots/supp_fdr_beta.png")
-gene_data %>% ggplot(aes(p_fdr_edge, n)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
-# ggsave("plots/supp_fdr_n.png")
-gene_data %>% ggplot(aes(p_fdr_edge, out_deg)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
-# ggsave("plots/supp_fdr_out.png")
-gene_data %>% ggplot(aes(p_fdr_edge, in_deg)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
-# ggsave("plots/supp_fdr_in.png")
-```
 
 
 ```{r}
@@ -606,8 +575,8 @@ X_ntc <- X_all[,cells_ntc]
 
 G_res_gwps <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs_gwps)) %>% purrr::list_rbind()
 
-
-n_shuff <- 10000
+doParallel::registerDoParallel(cores=20)
+n_shuff <- 4000 # 20*5 #10000
 perm_res_gwps <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
   shuffle_r2(G_res_gwps, G_hat, X_ntc, X_all, obs_gwps, i)
 
@@ -671,53 +640,12 @@ plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
 ggsave("plots/var_exp_gwps.png")
 
 plot_density <- tibble(r2_perm = colMeans(perm_res_gwps))
-plot_density %>% ggplot(aes(r2_perm)) + geom_density() + geom_vline(xintercept = mean(G_res_gwps$r2))
 
+plot_density %>% ggplot(aes(r2_perm)) + geom_density() + geom_vline(xintercept = mean(G_res_gwps$r2))
 plot_qq(dat=-log10(G_res_gwps$p_gene_r2), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
   labs(title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
 ggsave("plots/var_exp_qq_gwps.png")
-
-plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res_gwps$p_fdr_edge < .x)))
-plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
-  labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
-  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
-ggsave("plots/var_exp_gwps_appeal.png")
-
-plot_qq(dat=-log10(G_res_gwps$p_gene_r2_edge), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
-  labs(title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
-  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
-ggsave("plots/var_exp_qq_gwps_appeal.png")
-
-```
-
-
-```{r}
-cv_dag_fn <- paste0(rdata_loc, '/gwps_res_dag_cv.Rdata')
-load(cv_dag_fn)
-best_lambda <- 6 
-min_nz = 0.03/2
-G_hat <- res_dag$G_hat[,,best_lambda]
-G_hat[abs(c(G_hat)) < min_nz] <- 0
-
-CV_G_1 <- res_dag$CV_G_1[,,best_lambda]
-CV_G_1[abs(c(CV_G_1)) < min_nz] <- 0
-CV_G_2 <- res_dag$CV_G_2[,,best_lambda]
-CV_G_2[abs(c(CV_G_2)) < min_nz] <- 0
-CV_G_3 <- res_dag$CV_G_3[,,best_lambda]
-CV_G_3[abs(c(CV_G_3)) < min_nz] <- 0
-CV_G_4 <- res_dag$CV_G_4[,,best_lambda]
-CV_G_4[abs(c(CV_G_4)) < min_nz] <- 0
-CV_G_5 <- res_dag$CV_G_5[,,best_lambda]
-CV_G_5[abs(c(CV_G_5)) < min_nz] <- 0
-CV_mean <- (res_dag$xi_mat[,,6] > 0.5)*(sign(CV_G_1+CV_G_2+CV_G_3+CV_G_4+CV_G_5))
-```
-
-
-```{r}
-all_mats = list(G_hat, CV_mean, CV_G_1, CV_G_2, CV_G_3, CV_G_4, CV_G_5)
-purrr::map(all_mats, \(x) purrr::map_dbl(all_mats, \(y) calc_metrics(x, y)$F1))
-purrr::map(all_mats, \(x) purrr::map_dbl(all_mats, \(y) calc_metrics(x, y)$weight_acc))
 ```
 
 
