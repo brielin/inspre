@@ -305,7 +305,7 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
                                 gamma = NULL, its = 100, delta_target = 1e-4,
                                 verbose = 2, cv_folds = 0, mu = 10, tau = 1.5, solve_its = 10,
                                 ncores = 1, min_nz = 0.01, warm_start = FALSE,
-                                constraint = "UV", DAG = FALSE){
+                                constraint = "UV", DAG = FALSE, save_cv_graphs = FALSE){
   X_targets = map(X_ids, ~ targets[[.x]])
   if(verbose){cat("Fitting model with full dataset\n")}
   inst_effects <- map2(names(targets), targets, ~ multiple_iv_reg_h5X(
@@ -390,6 +390,9 @@ fit_inspre_from_h5X <- function(X, X_control, X_ids, X_vars, targets,
                                   cv_folds = 0, mu = mu, tau = tau, solve_its = solve_its,
                                   ncores = ncores, warm_start = warm_start, min_nz = min_nz,
                                   constraint = constraint, DAG = DAG)
+      if(save_cv_graphs){
+        full_res[[paste0("CV_G_", i)]] <- cv_res$R_hat
+      }
       V_nz <- abs(cv_res$V) > min_nz
       xi_mat <- xi_mat + V_nz
 

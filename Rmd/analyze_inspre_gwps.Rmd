@@ -72,11 +72,6 @@ graph_data <- graph_data %>%
 ```
 
 
-```{r}
-
-```
-
-
 ```{r, fig.widith=3.25, fig.height=3.25}
 plot_order <- hclust(dist(U_hat))$order
 
@@ -452,6 +447,20 @@ calc_r2 <- function(G, gene, X_ntc, X_all, obs){
   return(data.frame(gene = gene, r2 = res, row.names=gene))
 }
 
+calc_r2_rand <- function(G, gene, X_ntc, X_all, obs){
+  G_test <- G[, gene]
+  nzgenes <- names(G_test[abs(G_test) > 0])
+  grab_genes <- c(gene, sample(setdiff(colnames(G), c(gene, nzgenes)), length(nzgenes)))
+  
+  cells_eff <- obs$gene_id %in% nzgenes
+  X_ntc_sub <- X_ntc[grab_genes, ]
+  X_eff <- X_all[grab_genes, cells_eff]
+
+  X_design <- cbind(X_ntc_sub, X_eff)
+  res <- summary(lm(X_design[1,] ~ t(X_design[2:length(grab_genes), ]) + 0))$r.squared
+  return(data.frame(gene = gene, r2 = res, row.names=gene))
+}
+
 shuffle_r2 <- function(res, G, X_ntc, X_all, obs, shuffle = 0){
   cat(paste0("Shuffle iter: ", shuffle, "\n"))
   G_shuff <- G
@@ -467,9 +476,15 @@ shuffle_r2 <- function(res, G, X_ntc, X_all, obs, shuffle = 0){
 
 G_res <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs)) %>% purrr::list_rbind()
 
+doParallel::registerDoParallel(cores=28)
 n_shuff <- 10000
 perm_res <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
   shuffle_r2(G_res, G_hat, X_ntc, X_all, obs, i)
+
+rand_res <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar% {
+  rand_ve <- purrr::map(colnames(G_hat), ~ calc_r2_rand(G_hat, .x, X_ntc, X_all, obs)) %>% purrr::list_rbind()
+  rand_ve[G_res$gene,]$r2
+}
 
 # Calculate p-val for total variance explained
 alpha_p <- 0.01
@@ -485,7 +500,7 @@ G_res$p_G_r2 <- p_G_r2
 G_res$p_G_r2_lo <- p_G_r2_lo
 G_res$p_G_r2_hi <- p_G_r2_hi
 
-# Calculate p-val per gene
+# Calculate p-val per gene (random graph)
 G_res$p_gene_r2 <- rowMeans(G_res$r2 < perm_res)
 ci_naive <- z_a*sqrt((G_res$p_gene_r2*(1 - G_res$p_gene_r2))/n_shuff)
 G_res$p_lo_naive <- G_res$p_gene_r2 - ci_naive
@@ -495,7 +510,18 @@ G_res$p_lo <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2 + z_a**2/(2*n_shuff) - pm)
 G_res$p_hi <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2 + z_a**2/(2*n_shuff) + pm)
 G_res$p_fdr <- p.adjust(G_res$p_gene_r2, method='fdr')
 
+# Calculate p-val per gene (random edges)
+G_res$p_gene_r2_edge <- rowMeans(G_res$r2 < rand_res)
+ci_naive <- z_a*sqrt((G_res$p_gene_r2_edge*(1 - G_res$p_gene_r2_edge))/n_shuff)
+G_res$p_lo_naive_edge <- G_res$p_gene_r2_edge - ci_naive
+G_res$p_hi_naive_edge_<- G_res$p_gene_r2_edge + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*G_res$p_gene_r2_edge*(1-G_res$p_gene_r2_edge) + z_a**2)
+G_res$p_lo_edge <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2_edge + z_a**2/(2*n_shuff) - pm)
+G_res$p_hi_edge <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2_edge + z_a**2/(2*n_shuff) + pm)
+G_res$p_fdr_edge <- p.adjust(G_res$p_gene_r2_edge, method='fdr')
+
 save(perm_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res.Rdata')
+save(rand_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/rand_res.Rdata')
 save(G_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res.Rdata')
 ```
 
@@ -503,6 +529,7 @@ save(G_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res.Rdata'
 ```{r}
 load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res.Rdata')
 load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res.Rdata')
+load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/rand_res.Rdata')
 ```
 
 
@@ -562,10 +589,17 @@ X_ntc <- X_all[,cells_ntc]
 
 G_res_gwps <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs_gwps)) %>% purrr::list_rbind()
 
-
-n_shuff <- 10000
+doParallel::registerDoParallel(cores=20)
+n_shuff <- 4000 # 20*5 #10000
 perm_res_gwps <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
   shuffle_r2(G_res_gwps, G_hat, X_ntc, X_all, obs_gwps, i)
+
+# system.time(
+rand_res_gwps <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar% {
+  rand_ve <- purrr::map(colnames(G_hat), ~ calc_r2_rand(G_hat, .x, X_ntc, X_all, obs_gwps)) %>% purrr::list_rbind()
+  rand_ve[G_res_gwps$gene,]$r2
+}# )
+save(rand_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/rand_res_gwps_2.Rdata')
 
 # Calculate p-val for total variance explained
 alpha_p <- 0.01
@@ -591,7 +625,18 @@ G_res_gwps$p_lo <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2 + z_a**2/(2*n_sh
 G_res_gwps$p_hi <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2 + z_a**2/(2*n_shuff) + pm)
 G_res_gwps$p_fdr <- p.adjust(G_res_gwps$p_gene_r2, method='fdr')
 
+# Calculate p-val per gene (random edges)
+G_res_gwps$p_gene_r2_edge <- rowMeans(G_res_gwps$r2 < rand_res)
+ci_naive <- z_a*sqrt((G_res_gwps$p_gene_r2_edge*(1 - G_res_gwps$p_gene_r2_edge))/n_shuff)
+G_res_gwps$p_lo_naive_edge <- G_res_gwps$p_gene_r2_edge - ci_naive
+G_res_gwps$p_hi_naive_edge_<- G_res_gwps$p_gene_r2_edge + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*G_res_gwps$p_gene_r2_edge*(1-G_res_gwps$p_gene_r2_edge) + z_a**2)
+G_res_gwps$p_lo_edge <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2_edge + z_a**2/(2*n_shuff) - pm)
+G_res_gwps$p_hi_edge <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2_edge + z_a**2/(2*n_shuff) + pm)
+G_res_gwps$p_fdr_edge <- p.adjust(G_res_gwps$p_gene_r2_edge, method='fdr')
+
 save(perm_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res_gwps.Rdata')
+save(rand_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/rand_res_gwps.Rdata')
 save(G_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res_gwps.Rdata')
 ```
 
@@ -617,10 +662,6 @@ plot_qq(dat=-log10(G_res_gwps$p_gene_r2), dist=function(.x) -log10(.x), kind = '
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
 ggsave("plots/var_exp_qq_gwps.png")
 ```
-
-
-
-
 
 
 ```{r}

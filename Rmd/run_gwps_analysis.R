@@ -1,4 +1,4 @@
-#!/usr/bin/env /nfs/sw/R/R-4.2.3/lib64/R/bin/Rscript
+#!/usr/bin/env /nfs/sw/easybuild/software/R/4.3.2/lib/R/bin/Rscript
 
 require(hdf5r)
 require(dplyr)
@@ -6,18 +6,18 @@ require(purrr)
 require(inspre)
 
 ncores=16
-# k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_essential_normalized_singlecell_01.h5ad'
-# save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_dag.Rdata'
-# save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_nodag.Rdata'
-# save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
+k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_essential_normalized_singlecell_01.h5ad'
+save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_dag.Rdata'
+save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_nodag.Rdata'
+save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
 # k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_gwps_normalized_singlecell_01.h5ad'
 # save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_dag.Rdata'
 # save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_res_nodag.Rdata'
 # save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_all_guide_data.Rdata'
-k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/rpe1_normalized_singlecell_01.h5ad'
-save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_res_dag.Rdata'
-save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_res_nodag.Rdata'
-save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_guide_data.Rdata'
+# k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/rpe1_normalized_singlecell_01.h5ad'
+# save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_res_dag.Rdata'
+# save_nodag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_res_nodag.Rdata'
+# save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_rpe1_guide_data.Rdata'
 
 
 # At some point this gets auto-converted to 'non.targeting' by R...
@@ -71,7 +71,7 @@ dag_start <- Sys.time()
 cat("Fitting inspre with DAG=TRUE.\n")
 res_dag <- fit_inspre_from_h5X(hfile_sc[['X']], X_ntc, obs$gene_transcript, var$gene_id, targets,
                                max_med_ratio = 50, cv_folds = 5, ncores = ncores,
-                               DAG = TRUE, min_nz = 0.03/2, lambda_min_ratio = 0.1, nlambda = 10)
+                               DAG = TRUE, min_nz = 0.03/2, lambda_min_ratio = 0.1, nlambda = 10, save_cv_graphs = TRUE)
 save(res_dag, file=save_dag_res)
 gc_res <- gc(reset=TRUE)
 cat("DAG time: ", difftime(Sys.time(), dag_start, units="mins"),
