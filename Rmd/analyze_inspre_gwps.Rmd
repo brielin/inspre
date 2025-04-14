@@ -18,12 +18,15 @@ require(stringr)
 
 
 ```{r}
-k562_norm_sc_fn = '/gpfs/commons/groups/knowles_lab/gwps/data/K562_essential_normalized_singlecell_01.h5ad'
-save_dag_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_res_dag.Rdata'
-save_guide_res = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_guide_data.Rdata'
-save_gene_data = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gene_data.Rdata'
-save_graph_data = '/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/gwps_graph_data.Rdata'
-save_plots = '/'
+data_mat_loc <- '/home/brielin/Work/inspre_gwps_data/data_mats'
+rdata_loc <- '/home/brielin/Work/inspre_gwps_data/saved_rdata'
+k562_norm_sc_fn <- paste0(data_mat_loc, '/K562_essential_normalized_singlecell_01.h5ad')
+save_dag_res <- paste0(rdata_loc, '/gwps_res_dag.Rdata')
+save_guide_res <- paste0(rdata_loc, '/gwps_guide_data.Rdata')
+save_gene_data <- paste0(rdata_loc, '/gene_data.Rdata')
+save_graph_data <- paste0(rdata_loc, '/gwps_graph_data.Rdata')
+annot_MM_loc <- paste0(data_mat_loc, '/GeneAnnotation_MM.tsv')
+annot_JM_loc <- paste0(data_mat_loc, '/MorrisScience2023_SupplementaryTable_refGeneAnnotations.txt')
 ```
 
 
@@ -91,21 +94,6 @@ ggplot(graph_data, aes(y=Exposure, x=Outcome)) + # geom_tile(aes(fill=R_plot)) +
         plot.margin = unit(c(0.5,0.5,0.5,0.5), 'mm')) +
   guides(fill=FALSE) + coord_fixed()
 ggsave("plots/R_hat.png")
-```
-
-
-```{r, fig.width=1.5, fig.asp=1}
-ggplot(graph_data, aes(y=Exposure, x=Outcome)) + # geom_tile(aes(fill=R_plot)) +
-  geom_raster(aes(fill=sign(R_plot)*sqrt(abs(R_plot)))) +
-  scale_x_discrete(limits = genes[(plot_order)], labels = NULL) +
-  scale_y_discrete(limits = genes[rev(plot_order)], labels = NULL) +
-  scale_fill_gradient2(limits = c(-1, 1))  +
-  labs(x = NULL, y = NULL, title = NULL) +
-  theme(plot.title = element_text(size=10), axis.ticks=element_blank(),
-        axis.title = element_text(size=10), legend.title = element_text(size=10),
-        plot.margin = unit(c(0.5,0.5,0.5,0.5), 'mm')) +
-  guides(fill=FALSE) + coord_fixed()
-ggsave("plots/R_hat_grant.png")
 ```
 
 
@@ -291,8 +279,8 @@ gene_data %>% dplyr::arrange(desc(eg_centrality)) %>% head(10) %>%
 
 
 ```{r}
-gene_annotations_MM <- readr::read_delim('/gpfs/commons/groups/knowles_lab/gwps/data/GeneAnnotation_MM.tsv')
-gene_annotations_JM <- readr::read_delim('/gpfs/commons/groups/knowles_lab/gwps/data/MorrisScience2023_SupplementaryTable_refGeneAnnotations.txt')
+gene_annotations_MM <- readr::read_delim(annot_MM_loc)
+gene_annotations_JM <- readr::read_delim(annot_JM_loc)
 
 gene_data <- gene_data %>% dplyr::left_join(gene_annotations_MM, by=c("gene_name" ="gene"))
 gene_data <- gene_data %>% dplyr::left_join(gene_annotations_JM, by=c("gene_name" ="gene"))
