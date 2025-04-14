@@ -27,6 +27,7 @@ save_gene_data <- paste0(rdata_loc, '/gene_data.Rdata')
 save_graph_data <- paste0(rdata_loc, '/gwps_graph_data.Rdata')
 annot_MM_loc <- paste0(data_mat_loc, '/GeneAnnotation_MM.tsv')
 annot_JM_loc <- paste0(data_mat_loc, '/MorrisScience2023_SupplementaryTable_refGeneAnnotations.txt')
+cis_trans_loc <- paste0(rdata_loc,'/cis_trans.csv')
 ```
 
 
@@ -368,8 +369,7 @@ v_exp_by <- rowSums(R_adj)
 gene_data$v_exp_in <- v_exp_in
 gene_data$v_exp_by <- v_exp_by
 
-cis_trans_fn <- "/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/cis_trans.csv"
-cis_trans <- readr::read_csv(cis_trans_fn)
+cis_trans <- readr::read_csv(cis_trans_loc)
 
 gene_data <- dplyr::left_join(gene_data, cis_trans, by = dplyr::join_by(gene == Gene))
 ```
@@ -390,8 +390,7 @@ calc_r_se <- function(.x, n_samp=1000){
   return(res)
 }
 
-# plot_data <- purrr::map(seq(0, 0.5, .05), calc_r_se) %>% purrr::list_rbind()
-
+plot_data <- purrr::map(seq(0, 0.5, .05), calc_r_se) %>% purrr::list_rbind()
 plot_data %>% ggplot(aes(factor(cutoff), cors)) +
   geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
   geom_jitter(width=0.1, alpha=0.05, size=0.01) + 
@@ -435,6 +434,20 @@ calc_r2 <- function(G, gene, X_ntc, X_all, obs){
   return(data.frame(gene = gene, r2 = res, row.names=gene))
 }
 
+calc_r2_rand <- function(G, gene, X_ntc, X_all, obs){
+  G_test <- G[, gene]
+  nzgenes <- names(G_test[abs(G_test) > 0])
+  grab_genes <- c(gene, sample(setdiff(colnames(G), c(gene, nzgenes)), length(nzgenes)))
+  
+  cells_eff <- obs$gene_id %in% nzgenes
+  X_ntc_sub <- X_ntc[grab_genes, ]
+  X_eff <- X_all[grab_genes, cells_eff]
+
+  X_design <- cbind(X_ntc_sub, X_eff)
+  res <- summary(lm(X_design[1,] ~ t(X_design[2:length(grab_genes), ]) + 0))$r.squared
+  return(data.frame(gene = gene, r2 = res, row.names=gene))
+}
+
 shuffle_r2 <- function(res, G, X_ntc, X_all, obs, shuffle = 0){
   cat(paste0("Shuffle iter: ", shuffle, "\n"))
   G_shuff <- G
@@ -453,6 +466,11 @@ G_res <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs)) %>
 n_shuff <- 10000
 perm_res <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
   shuffle_r2(G_res, G_hat, X_ntc, X_all, obs, i)
+
+rand_res <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar% {
+  rand_ve <- purrr::map(colnames(G_hat), ~ calc_r2_rand(G_hat, .x, X_ntc, X_all, obs)) %>% purrr::list_rbind()
+  rand_ve[G_res$gene,]$r2
+}
 
 # Calculate p-val for total variance explained
 alpha_p <- 0.01
@@ -478,14 +496,26 @@ G_res$p_lo <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2 + z_a**2/(2*n_shuff) - pm)
 G_res$p_hi <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2 + z_a**2/(2*n_shuff) + pm)
 G_res$p_fdr <- p.adjust(G_res$p_gene_r2, method='fdr')
 
+# Calculate p-val per gene (random edges)
+G_res$p_gene_r2_edge <- rowMeans(G_res$r2 < rand_res)
+ci_naive <- z_a*sqrt((G_res$p_gene_r2_edge*(1 - G_res$p_gene_r2_edge))/n_shuff)
+G_res$p_lo_naive_edge <- G_res$p_gene_r2_edge - ci_naive
+G_res$p_hi_naive_edge_<- G_res$p_gene_r2_edge + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*G_res$p_gene_r2_edge*(1-G_res$p_gene_r2_edge) + z_a**2)
+G_res$p_lo_edge <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2_edge + z_a**2/(2*n_shuff) - pm)
+G_res$p_hi_edge <- (1/(1+z_a**2/n_shuff))*(G_res$p_gene_r2_edge + z_a**2/(2*n_shuff) + pm)
+G_res$p_fdr_edge <- p.adjust(G_res$p_gene_r2_edge, method='fdr')
+
 save(perm_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res.Rdata')
+save(rand_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/rand_res.Rdata')
 save(G_res, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res.Rdata')
 ```
 
 
 ```{r}
-load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res.Rdata')
-load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res.Rdata')
+load(paste0(rdata_loc, '/G_res.Rdata'))
+load(paste0(rdata_loc, '/perm_res.Rdata'))
+load(paste0(rdata_loc,'/rand_res.Rdata'))
 ```
 
 
@@ -510,11 +540,30 @@ tibble(null_cor=rowMeans(perm_res), eg_centrality=gene_data$eg_centrality) %>%
   labs(x="Var exp by random graphs", y="Eigencentrality") +
   geom_smooth(method='lm', formula="y~x+0")
 ggsave("plots/null_var_eg.png")
+
+
+plot_fdr_edge <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res$p_fdr_edge < .x)))
+plot_fdr_edge %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
+  labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Essential screen network and data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp_appeal.png")
+
+plot_qq(dat=-log10(G_res$p_gene_r2_edge), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
+  labs(title="Genes with signif var exp by the network\n Essential screen network and data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp_qq_appeal.png")
+
+tibble(null_cor=rowMeans(rand_res), eg_centrality=gene_data$eg_centrality) %>% 
+  ggplot(aes(null_cor, eg_centrality)) + geom_point() + theme_classic() +
+  labs(x="Var exp by random genes", y="Eigencentrality") +
+  geom_smooth(method='lm', formula="y~x+0")
+ggsave("plots/null_var_appeal.png")
+
 ```
 
 
-
 ```{r, fig.height=2, fig.width=3}
+gene_data$p_fdr <- G_res$p_fdr
 gene_data %>% ggplot(aes(p_fdr, inst_beta)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
 ggsave("plots/supp_fdr_beta.png")
 gene_data %>% ggplot(aes(p_fdr, n)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
@@ -525,6 +574,18 @@ gene_data %>% ggplot(aes(p_fdr, in_deg)) + geom_point() + theme_classic() + them
 ggsave("plots/supp_fdr_in.png")
 ```
 
+
+```{r, fig.height=2, fig.width=3}
+gene_data$p_fdr_edge <- G_res$p_fdr_edge
+gene_data %>% ggplot(aes(p_fdr_edge, inst_beta)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+# ggsave("plots/supp_fdr_beta.png")
+gene_data %>% ggplot(aes(p_fdr_edge, n)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+# ggsave("plots/supp_fdr_n.png")
+gene_data %>% ggplot(aes(p_fdr_edge, out_deg)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+# ggsave("plots/supp_fdr_out.png")
+gene_data %>% ggplot(aes(p_fdr_edge, in_deg)) + geom_point() + theme_classic() + theme(axis.title = element_text(size=10))
+# ggsave("plots/supp_fdr_in.png")
+```
 
 
 ```{r}
@@ -550,6 +611,11 @@ n_shuff <- 10000
 perm_res_gwps <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
   shuffle_r2(G_res_gwps, G_hat, X_ntc, X_all, obs_gwps, i)
 
+rand_res_gwps <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar% {
+  rand_ve <- purrr::map(colnames(G_hat), ~ calc_r2_rand(G_hat, .x, X_ntc, X_all, obs_gwps)) %>% purrr::list_rbind()
+  rand_ve[G_res_gwps$gene,]$r2
+}
+
 # Calculate p-val for total variance explained
 alpha_p <- 0.01
 z_a <- qnorm(1-alpha_p)
@@ -574,14 +640,26 @@ G_res_gwps$p_lo <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2 + z_a**2/(2*n_sh
 G_res_gwps$p_hi <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2 + z_a**2/(2*n_shuff) + pm)
 G_res_gwps$p_fdr <- p.adjust(G_res_gwps$p_gene_r2, method='fdr')
 
+# Calculate p-val per gene (random edges)
+G_res_gwps$p_gene_r2_edge <- rowMeans(G_res_gwps$r2 < rand_res_gwps)
+ci_naive <- z_a*sqrt((G_res_gwps$p_gene_r2_edge*(1 - G_res_gwps$p_gene_r2_edge))/n_shuff)
+G_res_gwps$p_lo_naive_edge <- G_res_gwps$p_gene_r2_edge - ci_naive
+G_res_gwps$p_hi_naive_edge_<- G_res_gwps$p_gene_r2_edge + ci_naive
+pm <- (z_a/(2*n_shuff))*sqrt(4*n_shuff*G_res_gwps$p_gene_r2_edge*(1-G_res_gwps$p_gene_r2_edge) + z_a**2)
+G_res_gwps$p_lo_edge <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2_edge + z_a**2/(2*n_shuff) - pm)
+G_res_gwps$p_hi_edge <- (1/(1+z_a**2/n_shuff))*(G_res_gwps$p_gene_r2_edge + z_a**2/(2*n_shuff) + pm)
+G_res_gwps$p_fdr_edge <- p.adjust(G_res_gwps$p_gene_r2_edge, method='fdr')
+
 save(perm_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res_gwps.Rdata')
+save(rand_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/rand_res_gwps.Rdata')
 save(G_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res_gwps.Rdata')
 ```
 
 
 ```{r}
-load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res_gwps.Rdata')
-load('/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/perm_res_gwps.Rdata')
+load(paste0(rdata_loc, '/G_res_gwps.Rdata'))
+load(paste0(rdata_loc, '/perm_res_gwps.Rdata'))
+load(paste0(rdata_loc,'/rand_res_gwps_1.Rdata'))
 ```
 
 
@@ -593,17 +671,54 @@ plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
 ggsave("plots/var_exp_gwps.png")
 
 plot_density <- tibble(r2_perm = colMeans(perm_res_gwps))
-
 plot_density %>% ggplot(aes(r2_perm)) + geom_density() + geom_vline(xintercept = mean(G_res_gwps$r2))
+
 plot_qq(dat=-log10(G_res_gwps$p_gene_r2), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
   labs(title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
 ggsave("plots/var_exp_qq_gwps.png")
+
+plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res_gwps$p_fdr_edge < .x)))
+plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
+  labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp_gwps_appeal.png")
+
+plot_qq(dat=-log10(G_res_gwps$p_gene_r2_edge), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
+  labs(title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
+  theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
+ggsave("plots/var_exp_qq_gwps_appeal.png")
+
 ```
 
 
+```{r}
+cv_dag_fn <- paste0(rdata_loc, '/gwps_res_dag_cv.Rdata')
+load(cv_dag_fn)
+best_lambda <- 6 
+min_nz = 0.03/2
+G_hat <- res_dag$G_hat[,,best_lambda]
+G_hat[abs(c(G_hat)) < min_nz] <- 0
+
+CV_G_1 <- res_dag$CV_G_1[,,best_lambda]
+CV_G_1[abs(c(CV_G_1)) < min_nz] <- 0
+CV_G_2 <- res_dag$CV_G_2[,,best_lambda]
+CV_G_2[abs(c(CV_G_2)) < min_nz] <- 0
+CV_G_3 <- res_dag$CV_G_3[,,best_lambda]
+CV_G_3[abs(c(CV_G_3)) < min_nz] <- 0
+CV_G_4 <- res_dag$CV_G_4[,,best_lambda]
+CV_G_4[abs(c(CV_G_4)) < min_nz] <- 0
+CV_G_5 <- res_dag$CV_G_5[,,best_lambda]
+CV_G_5[abs(c(CV_G_5)) < min_nz] <- 0
+CV_mean <- (res_dag$xi_mat[,,6] > 0.5)*(sign(CV_G_1+CV_G_2+CV_G_3+CV_G_4+CV_G_5))
+```
 
 
+```{r}
+all_mats = list(G_hat, CV_mean, CV_G_1, CV_G_2, CV_G_3, CV_G_4, CV_G_5)
+purrr::map(all_mats, \(x) purrr::map_dbl(all_mats, \(y) calc_metrics(x, y)$F1))
+purrr::map(all_mats, \(x) purrr::map_dbl(all_mats, \(y) calc_metrics(x, y)$weight_acc))
+```
 
 
 ```{r}
