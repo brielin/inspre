@@ -522,7 +522,7 @@ load(paste0(rdata_loc,'/rand_res.Rdata'))
 
 ```{r, fig.width=3.4, fig.height=2.5}
 # Could correlate with CRISPR n_cells, effect size, etc
-plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res$p_fdr < .x)))
+plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res$p_fdr_edge < .x)))
 plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
   labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Essential screen network and data") +
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
@@ -531,7 +531,7 @@ ggsave("plots/var_exp.png")
 plot_density <- tibble(r2_perm = colMeans(perm_res))
 plot_density %>% ggplot(aes(r2_perm)) + geom_density() + geom_vline(xintercept = mean(G_res$r2))
 
-plot_qq(dat=-log10(G_res$p_gene_r2), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
+plot_qq(dat=-log10(G_res$p_gene_r2_edge), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
   labs(title="Genes with signif var exp by the network\n Essential screen network and data") +
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
 ggsave("plots/var_exp_qq.png")
@@ -576,7 +576,7 @@ X_ntc <- X_all[,cells_ntc]
 G_res_gwps <- purrr::map(colnames(G_hat), ~ calc_r2(G_hat, .x, X_ntc, X_all, obs_gwps)) %>% purrr::list_rbind()
 
 doParallel::registerDoParallel(cores=20)
-n_shuff <- 4000 # 20*5 #10000
+n_shuff <- 10000
 perm_res_gwps <- foreach::foreach(i=1:n_shuff, .combine=cbind) %dopar%
   shuffle_r2(G_res_gwps, G_hat, X_ntc, X_all, obs_gwps, i)
 
@@ -628,12 +628,11 @@ save(G_res_gwps, file='/gpfs/commons/groups/knowles_lab/gwps/saved_rdata/G_res_g
 ```{r}
 load(paste0(rdata_loc, '/G_res_gwps.Rdata'))
 load(paste0(rdata_loc, '/perm_res_gwps.Rdata'))
-load(paste0(rdata_loc,'/rand_res_gwps_1.Rdata'))
 ```
 
 
 ```{r, fig.width=3.4, fig.height=2.5}
-plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res_gwps$p_fdr < .x)))
+plot_fdr <- tibble(fdr = seq(0.01, 1, 0.01), num_genes = purrr::map_int(seq(0.01, 1, 0.01), ~ sum(G_res_gwps$p_fdr_edge < .x)))
 plot_fdr %>% ggplot(aes(fdr, num_genes)) + geom_line() + theme_classic() +
   labs(x="FDR", y="Number signif genes", title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
@@ -642,7 +641,7 @@ ggsave("plots/var_exp_gwps.png")
 plot_density <- tibble(r2_perm = colMeans(perm_res_gwps))
 
 plot_density %>% ggplot(aes(r2_perm)) + geom_density() + geom_vline(xintercept = mean(G_res_gwps$r2))
-plot_qq(dat=-log10(G_res_gwps$p_gene_r2), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
+plot_qq(dat=-log10(G_res_gwps$p_gene_r2_edge), dist=function(.x) -log10(.x), kind = 'one-sided', decreasing=TRUE) + theme_classic() +
   labs(title="Genes with signif var exp by the network\n Ess screen network, GW screen data") +
   theme(plot.title = element_text(size=10, hjust=1), axis.title = element_text(size=10))
 ggsave("plots/var_exp_qq_gwps.png")
