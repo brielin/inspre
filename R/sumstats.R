@@ -10,7 +10,20 @@ NULL
 #' a time and saves each as Exposure, Outcome, Instrument, Effect size. Also
 #' saves instrument information.
 #'
-#' @param filename
+#' @param filename String. Path to file you want to parse.
+#' @param beta_col String. Name of the column containing beta.
+#' @param p_col String. Name of the column containing p values.
+#' @param id_col String. Name of the column containing variant ids (usually
+#'  rsids).
+#' @param se_col String. Name of the column containing standard errors of beta
+#'  estimates.
+#' @param p_thresh Float. Threshold to use for instrument inclusion.
+#' @param chr_col String. Name of the column containing the SNP chromosome.
+#' @param pos_col String. Name of the column containing the SNP position.
+#' @param ref_col String. Name of the column containing the reference allele.
+#' @param alt_col String. Name of the column containing the alternative allele.
+#' @param feature_col String. Name of the column containing the feature.
+#' @param delim String. File field delimiter.
 #'
 #' @export
 read_bigbrain <- function(filename, beta_col, p_col, id_col = "variant_id",

@@ -20,7 +20,31 @@ read_bigbrain(
 )
 }
 \arguments{
-\item{filename}{}
+\item{filename}{String. Path to file you want to parse.}
+
+\item{beta_col}{String. Name of the column containing beta.}
+
+\item{p_col}{String. Name of the column containing p values.}
+
+\item{id_col}{String. Name of the column containing variant ids (usually
+rsids).}
+
+\item{se_col}{String. Name of the column containing standard errors of beta
+estimates.}
+
+\item{p_thresh}{Float. Threshold to use for instrument inclusion.}
+
+\item{chr_col}{String. Name of the column containing the SNP chromosome.}
+
+\item{pos_col}{String. Name of the column containing the SNP position.}
+
+\item{ref_col}{String. Name of the column containing the reference allele.}
+
+\item{alt_col}{String. Name of the column containing the alternative allele.}
+
+\item{feature_col}{String. Name of the column containing the feature.}
+
+\item{delim}{String. File field delimiter.}
 }
 \description{
 Reads the bigbrain formatter summary statistics file. Reads one line at
