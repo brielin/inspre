@@ -7,7 +7,7 @@
 predict_inspre_G_h5X(
   res,
   X,
-  X_ntc,
+  X_control,
   beta,
   X_targets,
   X_vars,

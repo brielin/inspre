@@ -77,7 +77,8 @@ parse_hdf5_df <- function(hfile, entry = "obs"){
 #'   in X. Name of the feature measured in that row.
 #' @param vars_to_use Sequence of strings. Entries in X_vars to keep. Default
 #'   NULL to keep all.
-#' @param obs_to_use
+#' @param obs_to_use Sequence of bools. Indicator of columns of X to use in calculations.
+#'   Useful for cross validation. NULL to keep all.
 #' @export
 multiple_iv_reg_h5X <- function(inst_id, target, X, X_control, X_ids, X_vars, vars_to_use = NULL, obs_to_use = NULL){
   inst_obs <- X_ids == inst_id

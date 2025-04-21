@@ -26,7 +26,7 @@ fit_inspre_from_X(
   solve_its = 10,
   ncores = 1,
   warm_start = FALSE,
-  min_nz = 1e-05,
+  min_nz = 0.01,
   constraint = "UV",
   DAG = FALSE
 )
@@ -100,7 +100,7 @@ starting point for next fit.}
 
 \item{constraint}{One of "UV" or "VU". Constraint to use.}
 
-\item{DAG}{Bool. True to restrict solutions to approximate DAGs. Useful to
+\item{DAG}{Bool. True_to restrict solutions to approximate DAGs. Useful to
 set to TRUE if you are having convergence issues with `DAG=FALSE` as the
 more restricted model can be easier to fit.}
 }

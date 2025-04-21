@@ -23,7 +23,7 @@ fit_inspre_from_R(
   solve_its = 10,
   ncores = 1,
   warm_start = FALSE,
-  min_nz = 1e-05,
+  min_nz = 0.01,
   constraint = "UV",
   DAG = FALSE
 )

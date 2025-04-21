@@ -15,7 +15,7 @@ generate_dataset(
   DAG = FALSE,
   C = floor(0.1 * D),
   noise = "gaussian",
-  model = "inspre"
+  model = "inhibition"
 )
 }
 \arguments{
@@ -34,7 +34,7 @@ to simulate.}
 
 \item{noise}{String. Noise model to simulate, currently just "gaussian".}
 
-\item{model}{Data generating model. One of "inspre" or "dotears".}
+\item{model}{Data generating model. One of "inhibition" or "knockout".}
 
 \item{size}{Float. Size parameter for NB distribution for int samples.}
 

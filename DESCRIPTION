@@ -1,33 +1,34 @@
 Package: inspre
 Title: INverse SParse REgression
-Version: 0.0.0.9000
+Version: 0.1.0
 Author: Brielin C. Brown and David A. Knowles
 Maintainer: Brielin C. Brown <brielin.b@columbia.edu>
 Description: Matrix inverse, only better.
 License: file LICENSE
-Encoding: UTF-8
-LazyData: true
+Imports: 
+    doMC,
+    dplyr,
+    foreach,
+    purrr,
+    Rcpp,
+    RcppEigen,
+    stats
 Suggests:
-    hdf5r,
+    betareg,
     caret,
     ggplot2,
-    tidyr,
-    tibble,
-    igraph,
     ggupset,
-    betareg,
-    readr,
+    hdf5r,
+    igraph,
+    MendelianRandomization,
     pcalg,
-    rslurm
-RoxygenNote: 7.2.3
+    readr,
+    rslurm,
+    tibble,
+    tidyr
 LinkingTo: 
     Rcpp,
     RcppEigen
-Imports: 
-    Rcpp,
-    RcppEigen,
-    stats,
-    foreach,
-    doMC,
-    purrr,
-    dplyr
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.2

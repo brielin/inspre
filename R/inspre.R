@@ -2,7 +2,6 @@
 #' @useDynLib inspre, .registration = TRUE
 #' @importFrom Rcpp sourceCpp
 #' @import RcppEigen
-#' @import expm
 ## usethis namespace: end
 NULL
 

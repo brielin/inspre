@@ -24,7 +24,7 @@ inspre(
   solve_its = 3,
   ncores = 1,
   warm_start = TRUE,
-  min_nz = 1e-05,
+  min_nz = 0.01,
   constraint = "UV",
   DAG = FALSE
 )

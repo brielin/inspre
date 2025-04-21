@@ -35,6 +35,9 @@ in X. Name of the feature measured in that row.}
 
 \item{vars_to_use}{Sequence of strings. Entries in X_vars to keep. Default
 NULL to keep all.}
+
+\item{obs_to_use}{Sequence of bools. Indicator of columns of X to use in calculations.
+Useful for cross validation. NULL to keep all.}
 }
 \description{
 Implements simple multiple-outcome instrumental variables regression.
