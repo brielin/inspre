@@ -45,7 +45,7 @@ read_bigbrain <- function(filename, beta_col, p_col, id_col = "variant_id",
       print("Initializing")
       # Initialize all matrices
       inst_df <<- tibble::tibble(inst=x[[id_col]], chr=x[[chr_col]], pos=x[[pos_col]],
-                        ref=x[[ref_col]], alt=x[[alt_col]], n_eff=1)
+                        ref=x[[ref_col]], alt=x[[alt_col]])
       effect_df <<- tibble::tibble(inst=x[[id_col]], feature=x[[feature_col]],
                           beta=x[[beta_col]], se=x[[se_col]], p=x[[p_col]])
       last_snp <<- x[[id_col]]
@@ -99,23 +99,25 @@ read_bigbrain <- function(filename, beta_col, p_col, id_col = "variant_id",
       # Add new SNP info to inst_df
       inst_df <<- rbind(inst_df, tibble::tibble(inst=x[[id_col]], chr=x[[chr_col]],
                                         pos=x[[pos_col]], ref=x[[ref_col]],
-                                        alt=x[[alt_col]], n_eff=1))
+                                        alt=x[[alt_col]]))
       last_snp <<- x[[id_col]]
     }
     else{
       # Continue adding SNP effects to effect_df.
       # Optionally skip SNPs based on filer_col.
+      skip = FALSE
       if(!is.null(filter_col)){
-        if(is.null(filter_min) & is.null(filter_max)){
-          stop("Filter col specified but no values given.")
-        } else if(!is.null(filter_min)) {
-          if(x[[filter_col]] < filter_min) next
-        } else if(!is.null(filter_max)) {
-          if(x[[filter_col]] > filter_max) next
+        if(!is.na(x[[filter_col]])){
+          if(is.null(filter_min) & is.null(filter_max)){
+            stop("Filter col specified but no values given.")
+          } else if(!is.null(filter_min)) {
+            if(x[[filter_col]] < filter_min) skip = TRUE
+          } else if(!is.null(filter_max)) {
+            if(x[[filter_col]] > filter_max) skip = TRUE
+          }
         }
-
       }
-      if(x[[se_col]] > 0){
+      if(x[[se_col]] > 0 & !skip){
         effect_df <<- rbind(effect_df, tibble::tibble(
           inst=x[[id_col]], feature=x[[feature_col]], beta=x[[beta_col]],
           se=x[[se_col]], p=x[[p_col]]))
