@@ -24,12 +24,17 @@ NULL
 #' @param alt_col String. Name of the column containing the alternative allele.
 #' @param feature_col String. Name of the column containing the feature.
 #' @param delim String. File field delimiter.
+#' @param filter_col String. Column to filter on. NULL for no additional filtering.
+#' @param filter_min Float. Minimum value of `filter_col` for inclusion.
+#' @param filter_max Float. Maximum value of `filter_col` for inclusion.
 #'
 #' @export
 read_bigbrain <- function(filename, beta_col, p_col, id_col = "variant_id",
                           se_col = NULL, p_thresh = 5e-08, chr_col = "chr",
                           pos_col = "pos", ref_col = "ref", alt_col = "alt",
-                          feature_col = "feature", delim = "\t"){
+                          feature_col = "feature", delim = "\t",
+                          filter_col = NULL, filter_max = NULL,
+                          filter_min = NULL){
   last_snp <- NULL
   inst_df <- NULL
   effect_df <- NULL
@@ -98,7 +103,18 @@ read_bigbrain <- function(filename, beta_col, p_col, id_col = "variant_id",
       last_snp <<- x[[id_col]]
     }
     else{
-      # Continue adding SNP effects to effect_df
+      # Continue adding SNP effects to effect_df.
+      # Optionally skip SNPs based on filer_col.
+      if(!is.null(filter_col)){
+        if(is.null(filter_min) & is.null(filter_max)){
+          stop("Filter col specified but no values given.")
+        } else if(!is.null(filter_min)) {
+          if(x[[filter_col]] < filter_min) next
+        } else if(!is.null(filter_max)) {
+          if(x[[filter_col]] > filter_max) next
+        }
+
+      }
       if(x[[se_col]] > 0){
         effect_df <<- rbind(effect_df, tibble::tibble(
           inst=x[[id_col]], feature=x[[feature_col]], beta=x[[beta_col]],

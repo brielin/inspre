@@ -16,7 +16,10 @@ read_bigbrain(
   ref_col = "ref",
   alt_col = "alt",
   feature_col = "feature",
-  delim = "\\t"
+  delim = "\\t",
+  filter_col = NULL,
+  filter_max = NULL,
+  filter_min = NULL
 )
 }
 \arguments{
@@ -45,6 +48,12 @@ estimates.}
 \item{feature_col}{String. Name of the column containing the feature.}
 
 \item{delim}{String. File field delimiter.}
+
+\item{filter_col}{String. Column to filter on. NULL for no additional filtering.}
+
+\item{filter_max}{Float. Maximum value of `filter_col` for inclusion.}
+
+\item{filter_min}{Float. Minimum value of `filter_col` for inclusion.}
 }
 \description{
 Reads the bigbrain formatter summary statistics file. Reads one line at
