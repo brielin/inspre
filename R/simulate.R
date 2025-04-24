@@ -169,39 +169,44 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
   D <- nrow(G)
   int_sizes <- rep(N_int, D) # rnbinom(D, mu=N_int - N_int/10, size=N_int/10) + N_int/10
 
-  Ncs <- cumsum(c(N_cont, int_sizes))
-  N <- Ncs[length(Ncs)]
-  XB <- matrix(0, nrow=sum(N), ncol=D)
+  N_int_cs <- cumsum(c(0, int_sizes))
+  XB <- matrix(0, nrow=N_int_cs[length(N_int_cs)], ncol=D)
 
   for(d in 1:D){
-    start = Ncs[d]
-    end = Ncs[d+1]
+    start = N_int_cs[d]
+    end = N_int_cs[d+1]
     XB[(start+1):end, d] = 1
   }
-  XB <- t(t(XB) * int_beta)
 
   net_vars <- colSums(G**2)
   eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
+  total_var <- net_vars + eps_vars
+
   if(noise == 'gaussian'){
-    eps <- t(matrix(rnorm(D*N, sd=sqrt(eps_vars)), nrow=D, ncol=N))
+    eps_cont <- t(matrix(rnorm(D*N_cont, sd=sqrt(eps_vars)), nrow=D, ncol=N_cont))
+    eps_int <- t(matrix(rnorm(D*sum(int_sizes), sd=sqrt(eps_vars)), nrow=D, ncol=sum(int_sizes)))
   } else{
     stop('NotImplementedError')
   }
-  Y <- (XB + eps) %*% solve(diag(D) - G)
+  Y_cont <- eps_cont %*% solve(diag(D) - G)
   if(normalize){
     # This mimics perturb-seq normalization
-    mu_cont <- colMeans(Y[1:N_cont, ])
-    sd_cont <- apply(Y[1:N_cont, ], 2, sd)
-    Y <- t((t(Y) - mu_cont)/sd_cont)
+    mu_cont <- colMeans(Y_cont)
+    sd_cont <- apply(Y_cont, 2, sd)
+
+    Y_cont <- t((t(Y_cont) - mu_cont)/sd_cont)
+    Y_int <- (t(t(XB) * int_beta * sd_cont) + eps_int) %*% solve(diag(D) - G)
+    Y_int <- t((t(Y_int) - mu_cont)/sd_cont)
 
     # Also need to normalize the graph
     R <- get_tce(get_observed(G), normalize=sd_cont)
     G <- get_direct(R)$G
-    int_beta <- int_beta/sd_cont
     # TODO: update eps_vars
   } else{
+    Y_int <- (t(t(XB) * int_beta) + eps_int) %*% solve(diag(D) - G)
     R <- get_tce(get_observed(G))
   }
+  Y <- rbind(Y_cont, Y_int)
 
   colnames(Y) <- paste0("V", 1:D)
   targets <- c(rep("control", N_cont), paste0("V", rep(1:D, times=int_sizes)))
