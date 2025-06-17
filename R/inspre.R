@@ -565,6 +565,10 @@ fit_inspre_from_R <- function(R_tce, W = NULL, rho = 100.0, lambda = NULL,
       diag(D) - inspre_res$V[ , , i] / diag(inspre_res$V[ , , i])
   }
   dimnames(inspre_res$R_hat) <- list(rownames(R_tce), colnames(R_tce), inspre_res$lambda)
+  inspre_res$G_hat <- inspre_res$R_hat
+  inspre_res$R_hat <- R_hat
+  inspre_res$SE_hat <- SE_hat
+  inspre_res$W <- W
   return(inspre_res)
 }
 
