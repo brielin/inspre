@@ -511,7 +511,7 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
 #'
 #' See also inspre::inspre() for more details.
 #'
-#' @param R_tce D x D matrix of  "total causal effects".
+#' @param R_hat D x D matrix of  "total causal effects".
 #' @param W DxD Matrix of weights.
 #' @param rho Float. Initial learning rate for ADMM.
 #' @param lambda Float, sequence of floats of NULL. L1 regularization strength
@@ -546,28 +546,26 @@ inspre <- function(X, W = NULL, rho = 10.0, lambda = NULL,
 #' @param constraint One of "UV" or "VU". Constraint to use.
 #' @param DAG Bool. True to resitrict solutions to approximate DAGs.
 #' @export
-fit_inspre_from_R <- function(R_tce, W = NULL, rho = 100.0, lambda = NULL,
+fit_inspre_from_R <- function(R_hat, W = NULL, rho = 100.0, lambda = NULL,
                               lambda_min_ratio = 1e-2, nlambda = 20, alpha = 0,
                               gamma = NULL, its = 100, delta_target = 1e-4,
                               verbose = 1, train_prop = 0.8,
                               cv_folds = 0, mu = 10, tau = 1.5, solve_its = 10,
                               ncores = 1, warm_start = FALSE, min_nz = 0.01, constraint = "UV", DAG = FALSE){
-  D <- dim(R_tce)[1]
+  D <- dim(R_hat)[1]
   inspre_res <- inspre::inspre(
-    X = R_tce, W = W, rho = rho, lambda = lambda,
+    X = R_hat, W = W, rho = rho, lambda = lambda,
     lambda_min_ratio = lambda_min_ratio, nlambda = nlambda, alpha = alpha,
     gamma = gamma, its = its, delta_target = delta_target, symmetrize = FALSE,
     verbose = verbose, train_prop = train_prop, cv_folds = cv_folds, mu = mu,
     tau = tau, solve_its = solve_its, ncores = ncores, warm_start = warm_start, min_nz = min_nz, constraint = constraint, DAG = DAG)
-  inspre_res$R_hat <- array(0L, dim = dim(inspre_res$V))
+  inspre_res$G_hat <- array(0L, dim = dim(inspre_res$V))
   for(i in 1:length(inspre_res$lambda)){
-    inspre_res$R_hat[ , , i] <-
+    inspre_res$G_hat[ , , i] <-
       diag(D) - inspre_res$V[ , , i] / diag(inspre_res$V[ , , i])
   }
-  dimnames(inspre_res$R_hat) <- list(rownames(R_tce), colnames(R_tce), inspre_res$lambda)
-  inspre_res$G_hat <- inspre_res$R_hat
+  dimnames(inspre_res$G_hat) <- list(rownames(R_hat), colnames(R_hat), inspre_res$lambda)
   inspre_res$R_hat <- R_hat
-  inspre_res$SE_hat <- SE_hat
   inspre_res$W <- W
   return(inspre_res)
 }
@@ -703,7 +701,8 @@ predict_inspre <- function(res, .X, .beta, .targets){
 #'   `NULL` for no restriction on the ratio. This can be useful to set
 #'   if you have some entries with very small standard error, to prevent the
 #'   algorithm from focusing exclusively on the entries with very small SE.
-#' @param filter Bool. True to filter the produced TCE matrix with `fitler_tce`.
+#' @param filter Bool. True to filter the produced R_hat matrix with
+#'   `fitler_tce`.
 #' @param rho Float. Initial learning rate for ADMM.
 #' @param lambda Float, sequence of floats of NULL. L1 regularization strength
 #'   on inverse of X. If NULL, a logarithmicallly spaced set of values between
@@ -843,8 +842,6 @@ fit_inspre_from_X <- function(X, targets, weighted = TRUE, max_med_ratio = NULL,
   }
 
   # Hack until I have time to change all these variable names.
-  full_res$G_hat <- full_res$R_hat
-  full_res$R_hat <- R_hat
   full_res$SE_hat <- SE_hat
   full_res$W <- W
   return(full_res)

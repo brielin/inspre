@@ -1,6 +1,6 @@
 Package: inspre
 Title: INverse SParse REgression
-Version: 1.0.0
+Version: 1.0.1
 Author: Brielin C. Brown and David A. Knowles
 Maintainer: Brielin C. Brown <brielin.b@columbia.edu>
 Description: Matrix inverse, only better.
