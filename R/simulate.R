@@ -165,45 +165,6 @@ generate_data_knockout <- function(G, N_cont, N_int, noise='gaussian'){
 }
 
 
-calc_R2_i <- function(covY, i){
-  covY_mi <- covY[-i, -i]
-  covY_i <- covY[i, -i]
-  beta_hat <- solve(covY_mi, covY_i)
-  R2 <- sum(beta_hat * colSums(covY_mi * beta_hat))
-  return(R2)
-}
-
-
-calc_R2 <- function(G){
-  H <- solve(diag(D) - G)
-  covY <- t(H) %*% H
-
-  R2s <- purrr::map_dbl(1:nrow(G), ~ calc_R2_i(covY, .x))
-  return(R2s)
-}
-
-
-build_design <- function(M){
-  D <- nrow(M)
-  N <- D*(D+1)/2
-  B <-matrix(0, D, N)
-
-  k = 0
-  for(i in 1:D){
-    l = 0
-    for(j in i:D){
-      k = k+1
-      B[i, k] = M[i, j]
-      if(i!=j){
-        B[i+l, k] = M[i, j]
-      }
-      l = l+1
-    }
-  }
-  return(B)
-}
-
-
 est_reweighting <- function(G, c){
   M <- G**2 + t(G**2)
   B <- build_design(M)
@@ -231,19 +192,20 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
     net_vars <- colSums(G**2)
     eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
   } else{
-    # net_vars_obs <- colSums(G**2)
-    # rescale <- sqrt(net_vars/net_vars_obs)
-    # rescale[is.infinite(rescale)] = 1
-    # G <- t((t(G)*rescale))
-    # R2 <- calc_R2(G)
-    # R_mod <- get_tce(get_observed(G), normalize=R2**2)
-    # G <- get_direct(R_mod)$G
-    A <- est_reweighting(G, net_vars)
-    G <- G*A
+    net_vars_obs <- colSums(G**2)
+    rescale <- sqrt(net_vars/net_vars_obs)
+    rescale[is.infinite(rescale)] = 1
+    G <- t((t(G)*rescale))
+
+    G_eff <- colSums(G**2) + rowSums(G**2)
+    R2G <- calc_R2(G)
+    A <- sqrt(outer(1/G_eff, 1/G_eff))
+    GA_int <- G*A
+    GA_int_eff <- colSums(GA_int**2) + rowSums(GA_int**2)
+    G <- GA_int * sqrt(mean(G_eff)/mean(GA_int_eff))
 
     net_vars <- colSums(G**2)
-    eps_vars <- 1 - net_vars
-    # eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
+    eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
   }
   total_var <- net_vars + eps_vars
 
