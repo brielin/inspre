@@ -165,7 +165,56 @@ generate_data_knockout <- function(G, N_cont, N_int, noise='gaussian'){
 }
 
 
-generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian', normalize=TRUE){
+calc_R2_i <- function(covY, i){
+  covY_mi <- covY[-i, -i]
+  covY_i <- covY[i, -i]
+  beta_hat <- solve(covY_mi, covY_i)
+  R2 <- sum(beta_hat * colSums(covY_mi * beta_hat))
+  return(R2)
+}
+
+
+calc_R2 <- function(G){
+  H <- solve(diag(D) - G)
+  covY <- t(H) %*% H
+
+  R2s <- purrr::map_dbl(1:nrow(G), ~ calc_R2_i(covY, .x))
+  return(R2s)
+}
+
+
+build_design <- function(M){
+  D <- nrow(M)
+  N <- D*(D+1)/2
+  B <-matrix(0, D, N)
+
+  k = 0
+  for(i in 1:D){
+    l = 0
+    for(j in i:D){
+      k = k+1
+      B[i, k] = M[i, j]
+      if(i!=j){
+        B[i+l, k] = M[i, j]
+      }
+      l = l+1
+    }
+  }
+  return(B)
+}
+
+
+est_reweighting <- function(G, c){
+  M <- G**2 + t(G**2)
+  B <- build_design(M)
+  nnls_res <- limSolve::nnls(B, c)
+  A <- matrix(0, nrow=nrow(M), ncol=ncol(M))
+  A[lower.tri(A, diag = TRUE)] <- nnls_res$X
+  return(sqrt(t(A)))
+}
+
+
+generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian', normalize=TRUE, net_vars=NULL){
   D <- nrow(G)
   int_sizes <- rep(N_int, D) # rnbinom(D, mu=N_int - N_int/10, size=N_int/10) + N_int/10
 
@@ -178,8 +227,24 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
     XB[(start+1):end, d] = 1
   }
 
-  net_vars <- colSums(G**2)
-  eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
+  if(is.null(net_vars)){
+    net_vars <- colSums(G**2)
+    eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
+  } else{
+    # net_vars_obs <- colSums(G**2)
+    # rescale <- sqrt(net_vars/net_vars_obs)
+    # rescale[is.infinite(rescale)] = 1
+    # G <- t((t(G)*rescale))
+    # R2 <- calc_R2(G)
+    # R_mod <- get_tce(get_observed(G), normalize=R2**2)
+    # G <- get_direct(R_mod)$G
+    A <- est_reweighting(G, net_vars)
+    G <- G*A
+
+    net_vars <- colSums(G**2)
+    eps_vars <- 1 - net_vars
+    # eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
+  }
   total_var <- net_vars + eps_vars
 
   if(noise == 'gaussian'){
@@ -234,11 +299,17 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
 #' @param C Integer. Number of fully connected confounding nodes to simulate.
 #' @param noise String. Noise model to simulate, currently just "gaussian".
 #' @param model Data generating model. One of "inhibition" or "knockout".
+#' @param net_vars NULL to use the natural variance induced by uniform sampling
+#'  of DAG edge weights, or a float in (0,1) to sample network contribution to
+#'  variance uniformly around net_vars+-0.1.
 #' @export
 generate_dataset <- function(D, N_cont, N_int, int_beta=-2,
                              graph = 'scalefree', v = 0.2, p = 0.4,
                              DAG = FALSE, C = floor(0.1*D), noise = 'gaussian',
-                             model = 'inhibition'){
+                             model = 'inhibition', net_vars = NULL){
+  if(!is.null(net_vars)){
+    net_vars = rep(net_vars, D)
+  }
   G <- generate_network(D, graph, p, v, DAG)
   if(C > 0){
     if(graph == "scalefree"){
@@ -250,7 +321,7 @@ generate_dataset <- function(D, N_cont, N_int, int_beta=-2,
     G <- cbind(rbind(G, new_vars), matrix(0, nrow=D+C, ncol=C))
   }
   if(model == 'inhibition'){
-    data = generate_data_inhibition(G, N_cont, N_int, int_beta, noise)
+    data = generate_data_inhibition(G, N_cont, N_int, int_beta, noise, net_vars=net_vars)
   } else if (model == 'knockout'){
     data = generate_data_knockout(G, N_cont, N_int, noise)
   }
