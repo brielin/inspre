@@ -175,7 +175,7 @@ est_reweighting <- function(G, c){
 }
 
 
-generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian', normalize=TRUE, net_vars=NULL){
+generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gaussian', normalize=TRUE, net_vars=NULL, min_v=NULL){
   D <- nrow(G)
   int_sizes <- rep(N_int, D) # rnbinom(D, mu=N_int - N_int/10, size=N_int/10) + N_int/10
 
@@ -198,11 +198,14 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
     G <- t((t(G)*rescale))
 
     G_eff <- colSums(G**2) + rowSums(G**2)
-    R2G <- calc_R2(G)
     A <- sqrt(outer(1/G_eff, 1/G_eff))
     GA_int <- G*A
     GA_int_eff <- colSums(GA_int**2) + rowSums(GA_int**2)
+
+    print(summary(abs(G)[abs(G) > 0.0001]))
     G <- GA_int * sqrt(mean(G_eff)/mean(GA_int_eff))
+    if(!is.null(min_v)){ G[abs(G) < min_v] <- 0 }
+    print(summary(abs(G)[abs(G) > 0.0001]))
 
     net_vars <- colSums(G**2)
     eps_vars <- max(0.9, max(net_vars)) - net_vars + 0.1
@@ -228,6 +231,7 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
     # Also need to normalize the graph
     R <- get_tce(get_observed(G), normalize=sd_cont)
     G <- get_direct(R)$G
+    print(summary(abs(G)[abs(G) > 0.0001]))
     # TODO: update eps_vars
   } else{
     Y_int <- (t(t(XB) * int_beta) + eps_int) %*% solve(diag(D) - G)
@@ -268,7 +272,7 @@ generate_data_inhibition <- function(G, N_cont, N_int, int_beta=-2, noise='gauss
 generate_dataset <- function(D, N_cont, N_int, int_beta=-2,
                              graph = 'scalefree', v = 0.2, p = 0.4,
                              DAG = FALSE, C = floor(0.1*D), noise = 'gaussian',
-                             model = 'inhibition', net_vars = NULL){
+                             model = 'inhibition', net_vars = NULL, min_v=NULL){
   if(!is.null(net_vars)){
     net_vars = rep(net_vars, D)
   }
@@ -283,7 +287,7 @@ generate_dataset <- function(D, N_cont, N_int, int_beta=-2,
     G <- cbind(rbind(G, new_vars), matrix(0, nrow=D+C, ncol=C))
   }
   if(model == 'inhibition'){
-    data = generate_data_inhibition(G, N_cont, N_int, int_beta, noise, net_vars=net_vars)
+    data = generate_data_inhibition(G, N_cont, N_int, int_beta, noise, net_vars=net_vars, min_v=min_v)
   } else if (model == 'knockout'){
     data = generate_data_knockout(G, N_cont, N_int, noise)
   }
